@@ -1,62 +1,166 @@
 import * as React from 'react';
-import RcCheckbox from 'rc-checkbox';
-import classNames from 'classnames';
-import { composeRef } from 'rc-util/lib/ref';
-import { RadioProps, RadioChangeEvent } from './interface';
-import { ConfigContext } from '../config-provider';
-import RadioGroupContext from './context';
-import devWarning from '../_util/devWarning';
+import RcCheckbox from '@rc-component/checkbox';
+import { composeRef, isReactRenderable } from '@rc-component/util';
+import { clsx } from 'clsx';
 
-const InternalRadio: React.ForwardRefRenderFunction<HTMLElement, RadioProps> = (props, ref) => {
-  const context = React.useContext(RadioGroupContext);
-  const { getPrefixCls, direction } = React.useContext(ConfigContext);
-  const innerRef = React.useRef<HTMLElement>();
+import { useMergeSemantic, useSemanticRootStyle } from '../_util/hooks/useMergeSemantic';
+import { devUseWarning } from '../_util/warning';
+import Wave from '../_util/wave';
+import { TARGET_CLS } from '../_util/wave/interface';
+import useBubbleLock from '../checkbox/useBubbleLock';
+import { useComponentConfig } from '../config-provider/context';
+import DisabledContext from '../config-provider/DisabledContext';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
+import { FormItemInputContext } from '../form/context';
+import RadioGroupContext, { RadioOptionTypeContext } from './context';
+import type { RadioChangeEvent, RadioProps, RadioRef, RadioSemanticAllType } from './interface';
+import useStyle from './style';
+
+const InternalRadio: React.ForwardRefRenderFunction<RadioRef, RadioProps> = (props, ref) => {
+  const groupContext = React.useContext(RadioGroupContext);
+  const radioOptionTypeContext = React.useContext(RadioOptionTypeContext);
+
+  const {
+    getPrefixCls,
+    direction,
+    className: contextClassName,
+    style: contextStyle,
+    classNames: contextClassNames,
+    styles: contextStyles,
+  } = useComponentConfig('radio');
+  const innerRef = React.useRef<RadioRef>(null);
   const mergedRef = composeRef(ref, innerRef);
+  const { isFormItemInput } = React.useContext(FormItemInputContext);
 
-  React.useEffect(() => {
-    devWarning(!('optionType' in props), 'Radio', '`optionType` is only support in Radio.Group.');
-  }, []);
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Radio');
+
+    warning(!('optionType' in props), 'usage', '`optionType` is only support in Radio.Group.');
+  }
 
   const onChange = (e: RadioChangeEvent) => {
     props.onChange?.(e);
-    context?.onChange?.(e);
+    groupContext?.onChange?.(e);
   };
 
-  const { prefixCls: customizePrefixCls, className, children, style, ...restProps } = props;
-  const prefixCls = getPrefixCls('radio', customizePrefixCls);
+  const {
+    prefixCls: customizePrefixCls,
+    className,
+    rootClassName,
+    children,
+    style,
+    title,
+    classNames,
+    styles,
+    checked,
+    ...restProps
+  } = props;
+  const radioPrefixCls = getPrefixCls('radio', customizePrefixCls);
+
+  const isButtonType = (groupContext?.optionType || radioOptionTypeContext) === 'button';
+  const prefixCls = isButtonType ? `${radioPrefixCls}-button` : radioPrefixCls;
+
+  // Style
+  const rootCls = useCSSVarCls(radioPrefixCls);
+  const [hashId, cssVarCls] = useStyle(radioPrefixCls, rootCls);
+
   const radioProps: RadioProps = { ...restProps };
-  if (context) {
-    radioProps.name = context.name;
+
+  // ===================== Disabled =====================
+  const disabled = React.useContext(DisabledContext);
+
+  // ====================== Checked ======================
+  const hasChecked = 'checked' in props;
+  let mergedChecked = checked;
+  if (groupContext) {
+    radioProps.name = groupContext.name;
     radioProps.onChange = onChange;
-    radioProps.checked = props.value === context.value;
-    radioProps.disabled = props.disabled || context.disabled;
+    mergedChecked = props.value === groupContext.value;
+    radioProps.disabled = radioProps.disabled ?? groupContext.disabled;
   }
-  const wrapperClassString = classNames(
+
+  if (hasChecked || groupContext) {
+    radioProps.checked = mergedChecked;
+  }
+  radioProps.disabled = radioProps.disabled ?? disabled;
+
+  // =========== Merged Props for Semantic ===========
+  const mergedProps: RadioProps = {
+    ...props,
+    ...radioProps,
+    checked: mergedChecked,
+  };
+
+  const contextStyleRoot = useSemanticRootStyle(contextStyle);
+  const styleRoot = useSemanticRootStyle(style);
+
+  const [mergedClassNames, mergedStyles] = useMergeSemantic<
+    RadioSemanticAllType['classNames'],
+    RadioSemanticAllType['styles'],
+    RadioProps
+  >([contextClassNames, classNames], [contextStyles, contextStyleRoot, styles, styleRoot], {
+    props: mergedProps,
+  });
+
+  const wrapperClassString = clsx(
     `${prefixCls}-wrapper`,
     {
-      [`${prefixCls}-wrapper-checked`]: radioProps.checked,
+      [`${prefixCls}-wrapper-checked`]: mergedChecked,
       [`${prefixCls}-wrapper-disabled`]: radioProps.disabled,
       [`${prefixCls}-wrapper-rtl`]: direction === 'rtl',
+      [`${prefixCls}-wrapper-in-form-item`]: isFormItemInput,
+      [`${prefixCls}-wrapper-block`]: !!groupContext?.block,
     },
+    contextClassName,
     className,
+    rootClassName,
+    mergedClassNames.root,
+    hashId,
+    cssVarCls,
+    rootCls,
   );
 
+  // ============================ Event Lock ============================
+  const [onLabelClick, onInputClick] = useBubbleLock(radioProps.onClick);
+
+  // ============================== Render ==============================
   return (
-    // eslint-disable-next-line jsx-a11y/label-has-associated-control
-    <label
-      className={wrapperClassString}
-      style={style}
-      onMouseEnter={props.onMouseEnter}
-      onMouseLeave={props.onMouseLeave}
-    >
-      <RcCheckbox {...radioProps} type="radio" prefixCls={prefixCls} ref={mergedRef} />
-      {children !== undefined ? <span>{children}</span> : null}
-    </label>
+    <Wave component="Radio" disabled={radioProps.disabled}>
+      <label
+        className={wrapperClassString}
+        style={mergedStyles.root}
+        onMouseEnter={props.onMouseEnter}
+        onMouseLeave={props.onMouseLeave}
+        title={title}
+        onClick={onLabelClick}
+      >
+        {/* @ts-ignore */}
+        <RcCheckbox
+          {...radioProps}
+          className={clsx(mergedClassNames.icon, { [TARGET_CLS]: !isButtonType })}
+          style={mergedStyles.icon}
+          type="radio"
+          prefixCls={prefixCls}
+          ref={mergedRef}
+          onClick={onInputClick}
+        />
+        {isReactRenderable(children) ? (
+          <span
+            className={clsx(`${prefixCls}-label`, mergedClassNames.label)}
+            style={mergedStyles.label}
+          >
+            {children}
+          </span>
+        ) : null}
+      </label>
+    </Wave>
   );
 };
 
-const Radio = React.forwardRef<unknown, RadioProps>(InternalRadio);
+const Radio = React.forwardRef<RadioRef, RadioProps>(InternalRadio);
 
-Radio.displayName = 'Radio';
+if (process.env.NODE_ENV !== 'production') {
+  Radio.displayName = 'Radio';
+}
 
 export default Radio;

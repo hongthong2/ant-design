@@ -1,5 +1,10 @@
 import React from 'react';
+
+import type { DraggerProps, UploadListProps, UploadProps } from '..';
 import Upload from '..';
+import Dragger from '../Dragger';
+import type { UploadRef } from '../Upload';
+import UploadList from '../UploadList';
 
 describe('Upload.typescript', () => {
   it('Upload', () => {
@@ -8,6 +13,57 @@ describe('Upload.typescript', () => {
         <span>click to upload</span>
       </Upload>
     );
+    expect(upload).toBeTruthy();
+  });
+
+  it('onChange', () => {
+    const upload = (
+      <Upload<File> onChange={({ file }) => file}>
+        <span>click to upload</span>
+      </Upload>
+    );
+
+    expect(upload).toBeTruthy();
+  });
+
+  it('onChange params', () => {
+    type IFile = {
+      customFile: File;
+    };
+
+    const upload = (
+      <Upload<IFile> onChange={({ file }) => file.response?.customFile}>
+        <span>click to upload</span>
+      </Upload>
+    );
+
+    expect(upload).toBeTruthy();
+  });
+
+  it('onChange fileList', () => {
+    type IFile = {
+      customFile: File;
+    };
+
+    const upload = (
+      <Upload<IFile> onChange={({ fileList }) => fileList.map((file) => file.response?.customFile)}>
+        <span>click to upload</span>
+      </Upload>
+    );
+
+    expect(upload).toBeTruthy();
+  });
+
+  it('onChange in UploadProps', () => {
+    const uploadProps: UploadProps<File> = {
+      onChange: ({ file }) => file,
+    };
+    const upload = (
+      <Upload {...uploadProps}>
+        <span>click to upload</span>
+      </Upload>
+    );
+
     expect(upload).toBeTruthy();
   });
 
@@ -31,7 +87,7 @@ describe('Upload.typescript', () => {
   it('beforeUpload', () => {
     const upload = (
       <Upload
-        beforeUpload={file => {
+        beforeUpload={(file) => {
           const { name: returnType } = file;
           if (returnType === 'boolean') {
             return true;
@@ -65,7 +121,7 @@ describe('Upload.typescript', () => {
   it('beforeUpload async', () => {
     const upload = (
       <Upload
-        beforeUpload={async file => {
+        beforeUpload={async (file) => {
           const { name: returnType } = file;
           if (returnType === 'boolean') {
             return true;
@@ -99,11 +155,10 @@ describe('Upload.typescript', () => {
         status: 'error' as const,
       },
     ];
-    const upload = (
-      <Upload fileList={fileList} defaultFileList={fileList} />
-    )
+    const upload = <Upload fileList={fileList} defaultFileList={fileList} />;
     expect(upload).toBeTruthy();
   });
+
   it('itemRender', () => {
     const upload = (
       <Upload
@@ -122,5 +177,146 @@ describe('Upload.typescript', () => {
       </Upload>
     );
     expect(upload).toBeTruthy();
+  });
+
+  it('data', () => {
+    const upload1 = (
+      <Upload
+        data={() => ({
+          url: '',
+        })}
+      >
+        <span>click to upload</span>
+      </Upload>
+    );
+    const upload2 = (
+      <Upload
+        data={() =>
+          Promise.resolve({
+            url: '',
+          })
+        }
+      >
+        <span>click to upload</span>
+      </Upload>
+    );
+    const upload3 = (
+      <Upload
+        data={{
+          url: '',
+        }}
+      >
+        <span>click to upload</span>
+      </Upload>
+    );
+    expect(upload1).toBeTruthy();
+    expect(upload2).toBeTruthy();
+    expect(upload3).toBeTruthy();
+  });
+
+  it('UploadProps type', () => {
+    const uploadProps: UploadProps<number | string> = {
+      customRequest({ onSuccess }) {
+        onSuccess?.(1234);
+        onSuccess?.('test');
+      },
+    };
+    expect(<Upload {...uploadProps} />).toBeTruthy();
+  });
+
+  it('customRequest can return an abort handle', () => {
+    const uploadProps: UploadProps = {
+      customRequest(options, { defaultRequest }) {
+        const request = defaultRequest(options);
+        if (request) {
+          return { abort: () => request.abort() };
+        }
+      },
+    };
+
+    const request: ReturnType<NonNullable<UploadProps['customRequest']>> = {
+      abort: () => {},
+    };
+    expect(uploadProps.customRequest).toBeTruthy();
+    expect(request.abort).toBeTruthy();
+  });
+
+  it('customRequest accepts callbacks with unused return values', () => {
+    const uploadProps: UploadProps = {
+      customRequest: () => window.setTimeout(() => {}, 0),
+    };
+
+    expect(uploadProps.customRequest).toBeTruthy();
+  });
+
+  it('UploadListProps type', () => {
+    const uploadListProps: UploadListProps<number | string> = {
+      locale: {},
+      removeIcon: (file) => <div>{JSON.stringify(file.response)}</div>,
+      downloadIcon: (file) => <div>{JSON.stringify(file.response)}</div>,
+      previewIcon: (file) => <div>{JSON.stringify(file.response)}</div>,
+    };
+    expect(<UploadList {...uploadListProps} />).toBeTruthy();
+  });
+
+  it('DraggerProps type', () => {
+    const draggerProps: DraggerProps<number | string> = {
+      customRequest({ onSuccess }) {
+        onSuccess?.(1234);
+        onSuccess?.('test');
+      },
+    };
+    expect(<Dragger {...draggerProps} />).toBeTruthy();
+  });
+
+  it('Dragger generic onChange', () => {
+    const dragger = (
+      <Upload.Dragger<File> onChange={({ file }) => file}>
+        <span>drag to upload</span>
+      </Upload.Dragger>
+    );
+    expect(dragger).toBeTruthy();
+  });
+
+  it('Dragger generic onChange params', () => {
+    type IFile = {
+      customFile: File;
+    };
+
+    const dragger = (
+      <Upload.Dragger<IFile> onChange={({ file }) => file.response?.customFile}>
+        <span>drag to upload</span>
+      </Upload.Dragger>
+    );
+    expect(dragger).toBeTruthy();
+  });
+
+  it('Dragger generic onChange fileList', () => {
+    type IFile = {
+      customFile: File;
+    };
+
+    const dragger = (
+      <Upload.Dragger<IFile>
+        onChange={({ fileList }) => fileList.map((file) => file.response?.customFile)}
+      >
+        <span>drag to upload</span>
+      </Upload.Dragger>
+    );
+    expect(dragger).toBeTruthy();
+  });
+
+  it('Dragger generic ref', () => {
+    type IFile = {
+      customFile: File;
+    };
+
+    const ref = React.createRef<UploadRef<IFile>>();
+    const dragger = (
+      <Upload.Dragger<IFile> ref={ref}>
+        <span>drag to upload</span>
+      </Upload.Dragger>
+    );
+    expect(dragger).toBeTruthy();
   });
 });

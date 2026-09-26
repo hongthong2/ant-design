@@ -1,156 +1,327 @@
 import * as React from 'react';
-import classNames from 'classnames';
-import toArray from 'rc-util/lib/Children/toArray';
-import BreadcrumbItem from './BreadcrumbItem';
-import BreadcrumbSeparator from './BreadcrumbSeparator';
-import Menu from '../menu';
-import { ConfigContext } from '../config-provider';
-import devWarning from '../_util/devWarning';
-import { cloneElement } from '../_util/reactNode';
+import DownOutlined from '@ant-design/icons/DownOutlined';
+import { pickAttrs, toArray } from '@rc-component/util';
+import { clsx } from 'clsx';
 
-export interface Route {
-  path: string;
-  breadcrumbName: string;
-  children?: Omit<Route, 'children'>[];
+import { useMergeSemantic, useSemanticRootStyle } from '../_util/hooks/useMergeSemantic';
+import type { GenerateSemantic } from '../_util/hooks/useMergeSemantic/semanticType';
+import { cloneElement } from '../_util/reactNode';
+import type { AnyObject } from '../_util/type';
+import { devUseWarning } from '../_util/warning';
+import { useComponentConfig } from '../config-provider/context';
+import type { DropdownProps } from '../dropdown';
+import type { BreadcrumbContextProps } from './BreadcrumbContext';
+import BreadcrumbContext from './BreadcrumbContext';
+import type { BreadcrumbItemProps } from './BreadcrumbItem';
+import { InternalBreadcrumbItem } from './BreadcrumbItem';
+import BreadcrumbSeparator from './BreadcrumbSeparator';
+import useStyle from './style';
+import useItemRender from './useItemRender';
+import useItems from './useItems';
+
+export interface BreadcrumbItemType extends React.AriaAttributes {
+  key?: React.Key;
+  /**
+   * Different with `path`. Directly set the link of this item.
+   */
+  href?: string;
+  /**
+   * Different with `href`. It will concat all prev `path` to the current one.
+   */
+  path?: string;
+  title?: React.ReactNode;
+  /** @deprecated Please use `title` instead */
+  breadcrumbName?: string;
+  menu?: BreadcrumbItemProps['menu'];
+  className?: string;
+  style?: React.CSSProperties;
+  dropdownProps?: DropdownProps;
+  onClick?: React.MouseEventHandler<HTMLAnchorElement | HTMLSpanElement>;
+
+  /** @deprecated Please use `menu` instead */
+  children?: Omit<BreadcrumbItemType, 'children'>[];
+  [key: `data-${string}`]: string;
 }
 
-export interface BreadcrumbProps {
-  prefixCls?: string;
-  routes?: Route[];
-  params?: any;
+export interface BreadcrumbSeparatorType {
+  type: 'separator';
   separator?: React.ReactNode;
-  itemRender?: (
-    route: Route,
-    params: any,
-    routes: Array<Route>,
-    paths: Array<string>,
-  ) => React.ReactNode;
+}
+
+export type ItemType = Partial<BreadcrumbItemType & BreadcrumbSeparatorType>;
+
+export type InternalRouteType = Partial<BreadcrumbItemType & BreadcrumbSeparatorType>;
+
+export type BreadcrumbSemanticType = {
+  classNames?: {
+    root?: string;
+    item?: string;
+    separator?: string;
+  };
+  styles?: {
+    root?: React.CSSProperties;
+    item?: React.CSSProperties;
+    separator?: React.CSSProperties;
+  };
+};
+
+export type BreadcrumbSemanticAllType<T extends AnyObject = AnyObject> = GenerateSemantic<
+  BreadcrumbSemanticType,
+  BreadcrumbProps<T>
+>;
+
+export interface BreadcrumbProps<T extends AnyObject = AnyObject> {
+  prefixCls?: string;
+  params?: T;
+  separator?: React.ReactNode;
+  dropdownIcon?: React.ReactNode;
   style?: React.CSSProperties;
   className?: string;
+  rootClassName?: string;
+  children?: React.ReactNode;
+
+  /** @deprecated Please use `items` instead */
+  routes?: ItemType[];
+
+  items?: ItemType[];
+  classNames?: BreadcrumbSemanticAllType<T>['classNamesAndFn'];
+  styles?: BreadcrumbSemanticAllType<T>['stylesAndFn'];
+
+  itemRender?: (route: ItemType, params: T, routes: ItemType[], paths: string[]) => React.ReactNode;
 }
 
-function getBreadcrumbName(route: Route, params: any) {
-  if (!route.breadcrumbName) {
-    return null;
+export interface BreadcrumbRef {
+  nativeElement: HTMLElement;
+}
+
+const getPath = <T extends AnyObject = AnyObject>(params: T, path?: string) => {
+  if (path === undefined) {
+    return path;
   }
-  const paramsKeys = Object.keys(params).join('|');
-  const name = route.breadcrumbName.replace(
-    new RegExp(`:(${paramsKeys})`, 'g'),
-    (replacement, key) => params[key] || replacement,
-  );
-  return name;
-}
-
-function defaultItemRender(route: Route, params: any, routes: Route[], paths: string[]) {
-  const isLastItem = routes.indexOf(route) === routes.length - 1;
-  const name = getBreadcrumbName(route, params);
-  return isLastItem ? <span>{name}</span> : <a href={`#/${paths.join('/')}`}>{name}</a>;
-}
-
-const getPath = (path: string, params: any) => {
-  path = (path || '').replace(/^\//, '');
-  Object.keys(params).forEach(key => {
-    path = path.replace(`:${key}`, params[key]);
+  let mergedPath = (path || '').replace(/^\//, '');
+  Object.keys(params).forEach((key) => {
+    mergedPath = mergedPath.replace(`:${key}`, params[key]!);
   });
-  return path;
+  return mergedPath;
 };
 
-const addChildPath = (paths: string[], childPath: string = '', params: any) => {
-  const originalPaths = [...paths];
-  const path = getPath(childPath, params);
-  if (path) {
-    originalPaths.push(path);
-  }
-  return originalPaths;
-};
+const InternalBreadcrumb = <T extends AnyObject = AnyObject>(
+  props: BreadcrumbProps<T>,
+  ref: React.ForwardedRef<BreadcrumbRef>,
+) => {
+  const {
+    prefixCls: customizePrefixCls,
+    separator,
+    style,
+    className,
+    rootClassName,
+    routes: legacyRoutes,
+    items,
+    children,
+    itemRender,
+    params = {},
+    classNames,
+    styles,
+    dropdownIcon,
+    ...restProps
+  } = props;
 
-interface BreadcrumbInterface extends React.FC<BreadcrumbProps> {
-  Item: typeof BreadcrumbItem;
-  Separator: typeof BreadcrumbSeparator;
-}
+  const {
+    getPrefixCls,
+    direction,
+    className: contextClassName,
+    style: contextStyle,
+    classNames: contextClassNames,
+    styles: contextStyles,
+    separator: contextSeparator,
+    dropdownIcon: contextDropdownIcon,
+  } = useComponentConfig('breadcrumb');
 
-const Breadcrumb: BreadcrumbInterface = ({
-  prefixCls: customizePrefixCls,
-  separator = '/',
-  style,
-  className,
-  routes,
-  children,
-  itemRender = defaultItemRender,
-  params = {},
-  ...restProps
-}) => {
-  const { getPrefixCls, direction } = React.useContext(ConfigContext);
+  const mergedSeparator = separator ?? contextSeparator ?? '/';
+  const mergedDropdownIcon = dropdownIcon ?? contextDropdownIcon ?? <DownOutlined />;
 
-  let crumbs;
+  let crumbs: React.ReactNode;
+
   const prefixCls = getPrefixCls('breadcrumb', customizePrefixCls);
-  if (routes && routes.length > 0) {
+  const [hashId, cssVarCls] = useStyle(prefixCls);
+
+  const mergedItems = useItems(items, legacyRoutes);
+
+  // =========== Merged Props for Semantic ==========
+  const mergedProps = React.useMemo(() => {
+    return {
+      ...props,
+      separator: mergedSeparator,
+    } as BreadcrumbProps<T>;
+  }, [props, mergedSeparator]);
+
+  // ========================= Style ==========================
+  const contextStyleRoot = useSemanticRootStyle(contextStyle);
+  const styleRoot = useSemanticRootStyle(style);
+
+  const [mergedClassNames, mergedStyles] = useMergeSemantic<
+    BreadcrumbSemanticAllType<T>['classNames'],
+    BreadcrumbSemanticAllType<T>['styles'],
+    BreadcrumbProps<T>
+  >([contextClassNames, classNames], [contextStyles, contextStyleRoot, styles, styleRoot], {
+    props: mergedProps,
+  });
+
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Breadcrumb');
+    warning.deprecated(!legacyRoutes, 'routes', 'items');
+
+    // Deprecated warning for breadcrumb children
+    if (!mergedItems || mergedItems.length === 0) {
+      const childList = toArray(children);
+
+      warning.deprecated(
+        childList.length === 0,
+        'Breadcrumb.Item and Breadcrumb.Separator',
+        'items',
+      );
+
+      childList.forEach((element: any) => {
+        if (element) {
+          warning(
+            element.type &&
+              (element.type.__ANT_BREADCRUMB_ITEM === true ||
+                element.type.__ANT_BREADCRUMB_SEPARATOR === true),
+            'usage',
+            "Only accepts Breadcrumb.Item and Breadcrumb.Separator as it's children",
+          );
+        }
+      });
+    }
+  }
+
+  const mergedItemRender = useItemRender(prefixCls, itemRender);
+
+  if (mergedItems && mergedItems.length > 0) {
     // generated by route
     const paths: string[] = [];
-    crumbs = routes.map(route => {
-      const path = getPath(route.path, params);
 
-      if (path) {
-        paths.push(path);
+    const itemRenderRoutes = items || legacyRoutes;
+
+    crumbs = mergedItems.map((item, index) => {
+      const {
+        path,
+        key,
+        type,
+        menu,
+        onClick,
+        className: itemClassName,
+        style,
+        separator: itemSeparator,
+        dropdownProps,
+      } = item;
+      const mergedPath = getPath(params, path);
+
+      if (mergedPath !== undefined) {
+        paths.push(mergedPath);
       }
-      // generated overlay by route.children
-      let overlay;
-      if (route.children && route.children.length) {
-        overlay = (
-          <Menu>
-            {route.children.map(child => (
-              <Menu.Item key={child.path || child.breadcrumbName}>
-                {itemRender(child, params, routes, addChildPath(paths, child.path, params))}
-              </Menu.Item>
-            ))}
-          </Menu>
-        );
+
+      const mergedKey = key ?? index;
+
+      if (type === 'separator') {
+        return <BreadcrumbSeparator key={mergedKey}>{itemSeparator}</BreadcrumbSeparator>;
+      }
+
+      const itemProps: BreadcrumbItemProps = {};
+      const isLastItem = index === mergedItems.length - 1;
+
+      if (menu) {
+        itemProps.menu = menu;
+      }
+
+      let { href } = item;
+      if (paths.length && mergedPath !== undefined) {
+        href = `#/${paths.join('/')}`;
       }
 
       return (
-        <BreadcrumbItem overlay={overlay} separator={separator} key={path || route.breadcrumbName}>
-          {itemRender(route, params, routes, paths)}
-        </BreadcrumbItem>
+        <InternalBreadcrumbItem
+          key={mergedKey}
+          {...itemProps}
+          {...pickAttrs(item, { data: true, aria: true })}
+          className={itemClassName}
+          style={style}
+          dropdownProps={dropdownProps}
+          dropdownIcon={mergedDropdownIcon}
+          href={href}
+          separator={isLastItem ? '' : mergedSeparator}
+          onClick={onClick}
+          prefixCls={prefixCls}
+        >
+          {mergedItemRender(item, params, itemRenderRoutes!, paths, href)}
+        </InternalBreadcrumbItem>
       );
     });
   } else if (children) {
+    const childrenLength = toArray(children).length;
     crumbs = toArray(children).map((element: any, index) => {
       if (!element) {
         return element;
       }
 
-      devWarning(
-        element.type &&
-          (element.type.__ANT_BREADCRUMB_ITEM === true ||
-            element.type.__ANT_BREADCRUMB_SEPARATOR === true),
-        'Breadcrumb',
-        "Only accepts Breadcrumb.Item and Breadcrumb.Separator as it's children",
-      );
-
+      const isLastItem = index === childrenLength - 1;
       return cloneElement(element, {
-        separator,
+        separator: isLastItem ? '' : mergedSeparator,
+        // eslint-disable-next-line react/no-array-index-key
         key: index,
       });
     });
   }
 
-  const breadcrumbClassName = classNames(
+  const breadcrumbClassName = clsx(
     prefixCls,
-    {
-      [`${prefixCls}-rtl`]: direction === 'rtl',
-    },
+    contextClassName,
+    { [`${prefixCls}-rtl`]: direction === 'rtl' },
     className,
+    rootClassName,
+    mergedClassNames.root,
+    hashId,
+    cssVarCls,
   );
 
+  const mergedStyle: React.CSSProperties = {
+    ...mergedStyles.root,
+  };
+
+  const memoizedValue = React.useMemo<BreadcrumbContextProps>(
+    () => ({ classNames: mergedClassNames, styles: mergedStyles }),
+    [mergedClassNames, mergedStyles],
+  );
+
+  const nativeElementRef = React.useRef<HTMLElement>(null);
+
+  React.useImperativeHandle(ref, () => ({
+    nativeElement: nativeElementRef.current!,
+  }));
+
   return (
-    <div className={breadcrumbClassName} style={style} {...restProps}>
-      {crumbs}
-    </div>
+    <BreadcrumbContext.Provider value={memoizedValue}>
+      <nav
+        ref={nativeElementRef}
+        className={breadcrumbClassName}
+        style={mergedStyle}
+        {...restProps}
+      >
+        <ol>{crumbs}</ol>
+      </nav>
+    </BreadcrumbContext.Provider>
   );
 };
 
-Breadcrumb.Item = BreadcrumbItem;
+const Breadcrumb = React.forwardRef(InternalBreadcrumb) as (<T extends AnyObject = AnyObject>(
+  props: BreadcrumbProps<T> & {
+    ref?: React.ForwardedRef<BreadcrumbRef>;
+  },
+) => ReturnType<typeof InternalBreadcrumb>) &
+  Pick<React.FC, 'displayName'>;
 
-Breadcrumb.Separator = BreadcrumbSeparator;
+if (process.env.NODE_ENV !== 'production') {
+  Breadcrumb.displayName = 'Breadcrumb';
+}
 
 export default Breadcrumb;

@@ -1,18 +1,33 @@
-import { useEffect, useState } from 'react';
-import ResponsiveObserve, { ScreenMap } from '../../_util/responsiveObserve';
+import { useRef } from 'react';
+import { useLayoutEffect } from '@rc-component/util';
 
-function useBreakpoint(): ScreenMap {
-  const [screens, setScreens] = useState<ScreenMap>({});
+import { useForceUpdate } from '../../_util/hooks';
+import type { ScreenMap } from '../../_util/responsiveObserver';
+import useResponsiveObserver from '../../_util/responsiveObserver';
 
-  useEffect(() => {
-    const token = ResponsiveObserve.subscribe(supportScreens => {
-      setScreens(supportScreens);
+function useBreakpoint(refreshOnChange: boolean, defaultScreens: null): ScreenMap | null;
+function useBreakpoint(refreshOnChange?: boolean, defaultScreens?: ScreenMap): ScreenMap;
+
+function useBreakpoint(
+  refreshOnChange = true,
+  defaultScreens: ScreenMap | null = {} as ScreenMap,
+): ScreenMap | null {
+  const screensRef = useRef<ScreenMap | null>(defaultScreens);
+  const [, forceUpdate] = useForceUpdate();
+  const responsiveObserver = useResponsiveObserver();
+
+  useLayoutEffect(() => {
+    const token = responsiveObserver.subscribe((supportScreens) => {
+      screensRef.current = supportScreens;
+      if (refreshOnChange) {
+        forceUpdate();
+      }
     });
 
-    return () => ResponsiveObserve.unsubscribe(token);
-  }, []);
+    return () => responsiveObserver.unsubscribe(token);
+  }, [refreshOnChange]);
 
-  return screens;
+  return screensRef.current;
 }
 
 export default useBreakpoint;

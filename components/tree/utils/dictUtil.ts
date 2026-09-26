@@ -1,23 +1,34 @@
-import { DataNode, Key } from 'rc-tree/lib/interface';
+import type React from 'react';
+import { fillFieldNames } from '@rc-component/tree';
+import type { DataNode } from '@rc-component/tree';
+import { isNonNullable } from '@rc-component/util';
 
-enum Record {
-  None,
-  Start,
-  End,
-}
+import type { TreeProps } from '../Tree';
+
+const RECORD_NONE = 0;
+const RECORD_START = 1;
+const RECORD_END = 2;
+
+type Record = typeof RECORD_NONE | typeof RECORD_START | typeof RECORD_END;
+
+type FieldNames = TreeProps['fieldNames'];
 
 function traverseNodesKey(
   treeData: DataNode[],
-  callback: (key: Key | number | null, node: DataNode) => boolean,
+  callback: (key: React.Key | number | null, node: DataNode) => boolean,
+  fieldNames: Required<NonNullable<FieldNames>>,
 ) {
-  function processNode(dataNode: DataNode) {
-    const { key, children } = dataNode;
+  const { key: fieldKey, children: fieldChildren } = fieldNames;
+
+  function processNode(dataNode: DataNode & FieldNames[keyof FieldNames]) {
+    const key = dataNode[fieldKey];
+    const children = dataNode[fieldChildren];
     if (callback(key, dataNode) !== false) {
-      traverseNodesKey(children || [], callback);
+      traverseNodesKey(children || [], callback, fieldNames);
     }
   }
 
-  treeData.forEach(processNode);
+  treeData.forEach(processNode as any);
 }
 
 /** 计算选中范围，只考虑expanded情况以优化性能 */
@@ -26,67 +37,76 @@ export function calcRangeKeys({
   expandedKeys,
   startKey,
   endKey,
+  fieldNames,
 }: {
   treeData: DataNode[];
-  expandedKeys: Key[];
-  startKey?: Key;
-  endKey?: Key;
-}): Key[] {
-  const keys: Key[] = [];
-  let record: Record = Record.None;
+  expandedKeys: React.Key[];
+  startKey?: React.Key;
+  endKey?: React.Key;
+  fieldNames?: FieldNames;
+}): React.Key[] {
+  const keys: React.Key[] = [];
+  let record: Record = RECORD_NONE;
 
-  if (startKey && startKey === endKey) {
-    return [startKey];
-  }
-  if (!startKey || !endKey) {
+  if (!isNonNullable(startKey) || !isNonNullable(endKey)) {
     return [];
   }
+  if (startKey === endKey) {
+    return [startKey];
+  }
 
-  function matchKey(key: Key) {
+  function matchKey(key: React.Key) {
     return key === startKey || key === endKey;
   }
 
-  traverseNodesKey(treeData, (key: Key) => {
-    if (record === Record.End) {
-      return false;
-    }
-
-    if (matchKey(key)) {
-      // Match test
-      keys.push(key);
-
-      if (record === Record.None) {
-        record = Record.Start;
-      } else if (record === Record.Start) {
-        record = Record.End;
+  traverseNodesKey(
+    treeData,
+    (key, node) => {
+      if (record === RECORD_END) {
         return false;
       }
-    } else if (record === Record.Start) {
-      // Append selection
-      keys.push(key);
-    }
 
-    if (expandedKeys.indexOf(key) === -1) {
-      return false;
-    }
+      if (matchKey(key as any)) {
+        // Match test
+        keys.push(key as any);
 
-    return true;
-  });
+        if (record === RECORD_NONE) {
+          record = RECORD_START;
+        } else if (record === RECORD_START) {
+          record = RECORD_END;
+          return false;
+        }
+      } else if (record === RECORD_START && !node.disabled && node.selectable !== false) {
+        // Append selection
+        keys.push(key as any);
+      }
+      return expandedKeys.includes(key as any);
+    },
+    fillFieldNames(fieldNames),
+  );
 
   return keys;
 }
 
-export function convertDirectoryKeysToNodes(treeData: DataNode[], keys: Key[]) {
-  const restKeys: Key[] = [...keys];
+export function convertDirectoryKeysToNodes(
+  treeData: DataNode[],
+  keys: React.Key[],
+  fieldNames?: FieldNames,
+) {
+  const restKeys: React.Key[] = [...keys];
   const nodes: DataNode[] = [];
-  traverseNodesKey(treeData, (key: Key, node: DataNode) => {
-    const index = restKeys.indexOf(key);
-    if (index !== -1) {
-      nodes.push(node);
-      restKeys.splice(index, 1);
-    }
+  traverseNodesKey(
+    treeData,
+    (key, node) => {
+      const index = restKeys.indexOf(key as any);
+      if (index !== -1) {
+        nodes.push(node);
+        restKeys.splice(index, 1);
+      }
 
-    return !!restKeys.length;
-  });
+      return !!restKeys.length;
+    },
+    fillFieldNames(fieldNames),
+  );
   return nodes;
 }

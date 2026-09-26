@@ -1,0 +1,632 @@
+import type { ChangeEventHandler, TextareaHTMLAttributes } from 'react';
+import React, { useState } from 'react';
+import { spyElementPrototypes } from '@rc-component/util';
+
+import Input from '..';
+import focusTest from '../../../tests/shared/focusTest';
+import {
+  fireEvent,
+  pureRender,
+  render,
+  triggerResize,
+  waitFakeTimer,
+  waitFakeTimer19,
+} from '../../../tests/utils';
+import type { TextAreaProps, TextAreaRef } from '../TextArea';
+
+const { TextArea } = Input;
+
+focusTest(TextArea, { refFocus: true });
+
+describe('TextArea', () => {
+  const originalGetComputedStyle = window.getComputedStyle;
+  beforeAll(() => {
+    Object.defineProperty(window, 'getComputedStyle', {
+      value: (node: Element) => ({
+        getPropertyValue: (prop: PropertyKey) => {
+          if (prop === 'box-sizing') {
+            return originalGetComputedStyle(node)[prop as unknown as number] || 'border-box';
+          }
+
+          const oriValue = originalGetComputedStyle(node)[prop as unknown as number];
+          if (['padding', 'width', 'height'].some((p) => prop.toString().includes(p))) {
+            return '1px';
+          }
+          return oriValue;
+        },
+      }),
+    });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(window, 'getComputedStyle', { value: originalGetComputedStyle });
+  });
+
+  it('should auto calculate height according to content length', async () => {
+    jest.useFakeTimers();
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const ref = React.createRef<TextAreaRef>();
+
+    const onInternalAutoSize = jest.fn();
+
+    const genTextArea = (props = {}) => (
+      <TextArea
+        value=""
+        readOnly
+        autoSize={{ minRows: 2, maxRows: 6 }}
+        wrap="off"
+        ref={ref}
+        {...props}
+        {...{ onInternalAutoSize }}
+      />
+    );
+
+    const { container, rerender } = pureRender(genTextArea());
+    await waitFakeTimer19();
+    expect(onInternalAutoSize).toHaveBeenCalledTimes(1);
+
+    rerender(genTextArea({ value: '1111\n2222\n3333' }));
+    await waitFakeTimer19();
+    expect(onInternalAutoSize).toHaveBeenCalledTimes(2);
+
+    rerender(genTextArea({ value: '1111' }));
+    await waitFakeTimer19();
+    expect(onInternalAutoSize).toHaveBeenCalledTimes(3);
+
+    expect(container.querySelector('textarea')).toHaveStyle({ overflow: '' });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('should support onPressEnter and onKeyDown', () => {
+    const fakeHandleKeyDown = jest.fn();
+    const fakeHandlePressEnter = jest.fn();
+    const { container } = render(
+      <TextArea onKeyDown={fakeHandleKeyDown} onPressEnter={fakeHandlePressEnter} />,
+    );
+    /** KeyCode 65 is A */
+    fireEvent.keyDown(container.querySelector('textarea')!, { keyCode: 65 });
+    expect(fakeHandleKeyDown).toHaveBeenCalledTimes(1);
+    expect(fakeHandlePressEnter).toHaveBeenCalledTimes(0);
+
+    /** KeyCode 13 is Enter */
+    fireEvent.keyDown(container.querySelector('textarea')!, { keyCode: 13 });
+    expect(fakeHandleKeyDown).toHaveBeenCalledTimes(2);
+    expect(fakeHandlePressEnter).toHaveBeenCalledTimes(1);
+  });
+
+  it('should support disabled', () => {
+    const { asFragment } = render(<TextArea disabled />);
+    expect(asFragment().firstChild).toMatchSnapshot();
+  });
+
+  describe('maxLength', () => {
+    it('should support maxLength', () => {
+      const { asFragment } = render(<TextArea maxLength={10} />);
+      expect(asFragment().firstChild).toMatchSnapshot();
+    });
+
+    it('maxLength should not block control', () => {
+      const { container } = render(<TextArea maxLength={1} value="light" />);
+      expect(container.querySelector('textarea')?.value).toBe('light');
+    });
+
+    it('should exceed maxLength when use IME', () => {
+      const onChange = jest.fn();
+
+      const { container } = render(<TextArea maxLength={1} onChange={onChange} />);
+      fireEvent.compositionStart(container.querySelector('textarea')!);
+      fireEvent.change(container.querySelector('textarea')!, { target: { value: 'zhu' } });
+      fireEvent.compositionEnd(container.querySelector('textarea')!, {
+        currentTarget: { value: '竹' },
+      });
+      fireEvent.change(container.querySelector('textarea')!, { target: { value: '竹' } });
+
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ target: expect.objectContaining({ value: '竹' }) }),
+      );
+    });
+  });
+
+  it('handleKeyDown', () => {
+    const onPressEnter = jest.fn();
+    const onKeyDown = jest.fn();
+    const { container } = render(
+      <TextArea onPressEnter={onPressEnter} onKeyDown={onKeyDown} aria-label="textarea" />,
+    );
+    fireEvent.keyDown(container.querySelector('textarea')!, { keyCode: 13 });
+
+    expect(onPressEnter).toHaveBeenCalled();
+    expect(onKeyDown).toHaveBeenCalled();
+  });
+
+  it('should trigger onResize', async () => {
+    jest.useFakeTimers();
+    const onResize = jest.fn();
+    const ref = React.createRef<TextAreaRef>();
+    const { container } = render(<TextArea ref={ref} onResize={onResize} autoSize />);
+    await waitFakeTimer();
+
+    triggerResize(container.querySelector('textarea')!);
+    await waitFakeTimer();
+
+    expect(onResize).toHaveBeenCalledWith(
+      expect.objectContaining({ width: expect.any(Number), height: expect.any(Number) }),
+    );
+
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('should disabled trigger onResize', async () => {
+    const { container } = render(<TextArea showCount style={{ resize: 'none' }} />);
+    expect(container.innerHTML).toContain('resize: none;');
+    const { container: container2 } = render(<TextArea showCount />);
+    expect(container2.innerHTML).not.toContain('resize: none;');
+  });
+
+  it('should works same as Input', () => {
+    const { container: inputContainer, rerender: inputRerender } = render(<Input value="111" />);
+    const { container: textareaContainer, rerender: textareaRerender } = render(
+      <TextArea value="111" />,
+    );
+    inputRerender(<Input value={undefined} />);
+    textareaRerender(<TextArea value={undefined} />);
+    expect(textareaContainer.querySelector('textarea')?.value).toBe(
+      inputContainer.querySelector('input')?.value,
+    );
+  });
+
+  describe('should support showCount', () => {
+    it('maxLength', () => {
+      const { container } = render(<TextArea maxLength={5} showCount value="12345" />);
+      expect(container.querySelector('textarea')?.value).toBe('12345');
+      expect(
+        container.querySelector('.ant-input-textarea-show-count')?.getAttribute('data-count'),
+      ).toBe('5 / 5');
+    });
+
+    it('control exceed maxLength', () => {
+      const { container } = render(<TextArea maxLength={5} showCount value="12345678" />);
+      expect(container.querySelector('textarea')?.value).toBe('12345678');
+      expect(
+        container.querySelector('.ant-input-textarea-show-count')?.getAttribute('data-count'),
+      ).toBe('8 / 5');
+    });
+
+    it('className & style patch to outer', () => {
+      const { container } = render(
+        <TextArea className="bamboo" style={{ textAlign: 'center' }} showCount />,
+      );
+
+      // Outer
+      expect(container.querySelector('span')).toHaveClass('bamboo');
+      expect(container.querySelector('span')).toHaveStyle({ textAlign: 'center' });
+
+      // Inner
+      expect(container.querySelector('.ant-input')).not.toHaveClass('bamboo');
+      expect(container.querySelector('.ant-input')).not.toHaveStyle({ textAlign: 'center' });
+    });
+
+    it('count formatter', () => {
+      const { container } = render(
+        <TextArea
+          maxLength={5}
+          showCount={{
+            formatter: ({ value, count, maxLength }) => `${value}, ${count}, ${maxLength}`,
+          }}
+          value="12345"
+        />,
+      );
+      expect(container.querySelector('textarea')?.value).toBe('12345');
+      expect(
+        container.querySelector('.ant-input-textarea-show-count')?.getAttribute('data-count'),
+      ).toBe('12345, 5, 5');
+    });
+  });
+
+  it('should support size', async () => {
+    const { asFragment, container } = render(<TextArea size="large" />);
+    expect(container.querySelector('textarea')).toHaveClass('ant-input-lg');
+    expect(asFragment().firstChild).toMatchSnapshot();
+  });
+
+  it('set mouse cursor position', () => {
+    const defaultValue = '11111';
+    const valLength = defaultValue.length;
+    const ref = React.createRef<TextAreaRef>();
+    render(<TextArea autoFocus ref={ref} defaultValue={defaultValue} />);
+    ref.current?.resizableTextArea?.textArea.setSelectionRange(valLength, valLength);
+    expect(ref.current?.resizableTextArea?.textArea.selectionStart).toBe(5);
+    expect(ref.current?.resizableTextArea?.textArea.selectionEnd).toBe(5);
+  });
+
+  it('support function classNames and styles', () => {
+    const functionClassNames: TextAreaProps['classNames'] = (info) => {
+      const { props } = info;
+      return {
+        root: 'dynamic-root',
+        textarea: props.disabled ? 'disabled-item' : 'enabled-item',
+        count: `dynamic-count-${props.count?.max}`,
+      };
+    };
+
+    const functionStyles: TextAreaProps['styles'] = (info) => {
+      const { props } = info;
+      return {
+        root: {
+          backgroundColor: props.size === 'small' ? '#e6f7ff' : '#f6ffed',
+        },
+        textarea: {
+          color: props.disabled ? '#d9d9d9' : '#52c41a',
+        },
+        count: {
+          color: props.count?.max === 1024 ? '#e6f7ff' : '#f6ffed',
+        },
+      };
+    };
+
+    const { container, rerender } = render(
+      <TextArea
+        classNames={functionClassNames}
+        styles={functionStyles}
+        count={{ max: 1024 }}
+        showCount
+        size="small"
+      />,
+    );
+
+    const wrapper = container.querySelector('.ant-input-textarea-affix-wrapper');
+    const textarea = container.querySelector('textarea');
+    const count = container.querySelector('.ant-input-data-count');
+
+    expect(wrapper).toHaveClass('dynamic-root');
+    expect(textarea).toHaveClass('enabled-item');
+    expect(count).toHaveClass('dynamic-count-1024');
+    expect(wrapper).toHaveStyle('background-color: #e6f7ff');
+    expect(textarea).toHaveStyle('color: #52c41a');
+    expect(count).toHaveStyle('color: #e6f7ff');
+
+    const objectClassNames: TextAreaProps['classNames'] = {
+      root: 'dynamic-root-default',
+      textarea: 'disabled-item',
+      count: 'dynamic-count-default',
+    };
+    const objectStyles: TextAreaProps['styles'] = {
+      root: { backgroundColor: '#f6ffed' },
+      textarea: { color: '#d9d9d9' },
+      count: { color: '#e6f7ff' },
+    };
+    rerender(<TextArea classNames={objectClassNames} styles={objectStyles} disabled showCount />);
+
+    expect(wrapper).toHaveClass('dynamic-root-default');
+    expect(textarea).toHaveClass('disabled-item');
+    expect(count).toHaveClass('dynamic-count-default');
+    expect(wrapper).toHaveStyle('background-color: #f6ffed');
+    expect(textarea).toHaveStyle('color: #d9d9d9');
+    expect(count).toHaveStyle('color: #e6f7ff');
+  });
+});
+
+describe('TextArea allowClear', () => {
+  it('should support allowClear.disabled', () => {
+    const { container, rerender } = render(
+      <TextArea allowClear={{ clearIcon: 'clear', disabled: true }} defaultValue="111" />,
+    );
+    expect(container.querySelector('.ant-input-clear-icon-hidden')).toBeTruthy();
+
+    rerender(<TextArea allowClear={{ clearIcon: 'clear', disabled: false }} defaultValue="111" />);
+    expect(container.querySelector('.ant-input-clear-icon-hidden')).toBeFalsy();
+  });
+
+  it('should change type when click', () => {
+    const { asFragment, container } = render(<TextArea allowClear />);
+    fireEvent.change(container.querySelector('textarea')!, { target: { value: '111' } });
+    expect(container.querySelector('textarea')?.value).toBe('111');
+    expect(asFragment().firstChild).toMatchSnapshot();
+    fireEvent.click(container.querySelector('.ant-input-clear-icon')!);
+    expect(asFragment().firstChild).toMatchSnapshot();
+    expect(container.querySelector('textarea')?.value).toBe('');
+  });
+
+  it('should not show icon if value is undefined, null or empty string', () => {
+    const wrappers = [null, undefined, ''].map((val) =>
+      render(
+        <TextArea allowClear value={val as TextareaHTMLAttributes<HTMLTextAreaElement>['value']} />,
+      ),
+    );
+    wrappers.forEach(({ asFragment, container }) => {
+      expect(container.querySelector('textarea')?.value).toBe('');
+      expect(container.querySelector('.ant-input-clear-icon-hidden')).toBeTruthy();
+      expect(asFragment().firstChild).toMatchSnapshot();
+    });
+  });
+
+  it('should not show icon if defaultValue is undefined, null or empty string', () => {
+    const wrappers = [null, undefined, ''].map((val) =>
+      render(
+        <TextArea
+          allowClear
+          defaultValue={val as TextareaHTMLAttributes<HTMLTextAreaElement>['value']}
+        />,
+      ),
+    );
+    wrappers.forEach(({ asFragment, container }) => {
+      expect(container.querySelector('textarea')?.value).toBe('');
+      expect(container.querySelector('.ant-input-clear-icon-hidden')).toBeTruthy();
+      expect(asFragment().firstChild).toMatchSnapshot();
+    });
+  });
+
+  it('should trigger event correctly', () => {
+    let argumentEventObjectType;
+    let argumentEventObjectValue;
+    const onChange: ChangeEventHandler<HTMLTextAreaElement> = (e) => {
+      argumentEventObjectType = e.type;
+      argumentEventObjectValue = e.target.value;
+    };
+    const { container } = render(<TextArea allowClear defaultValue="111" onChange={onChange} />);
+    fireEvent.click(container.querySelector('.ant-input-clear-icon')!);
+    expect(argumentEventObjectType).toBe('click');
+    expect(argumentEventObjectValue).toBe('');
+    expect(container.querySelector('textarea')?.value).toBe('');
+  });
+
+  it('should trigger event correctly on controlled mode', () => {
+    let argumentEventObjectType;
+    let argumentEventObjectValue;
+    const onChange: ChangeEventHandler<HTMLTextAreaElement> = (e) => {
+      argumentEventObjectType = e.type;
+      argumentEventObjectValue = e.target.value;
+    };
+    const { container } = render(<TextArea allowClear value="111" onChange={onChange} />);
+    fireEvent.click(container.querySelector('.ant-input-clear-icon')!);
+    expect(argumentEventObjectType).toBe('click');
+    expect(argumentEventObjectValue).toBe('');
+    expect(container.querySelector('textarea')?.value).toBe('111');
+  });
+
+  it('should focus textarea after clear', () => {
+    const { container, unmount } = render(<TextArea allowClear defaultValue="111" />, {
+      container: document.body,
+    });
+    fireEvent.click(container.querySelector('.ant-input-clear-icon')!);
+    expect(document.activeElement).toBe(container.querySelector('textarea'));
+    unmount();
+  });
+
+  it('should not support allowClear when it is disabled', () => {
+    const { container } = render(<TextArea allowClear defaultValue="111" disabled />);
+    expect(container.querySelector('.ant-input-clear-icon-hidden')).toBeTruthy();
+  });
+
+  it('not block input when `value` is undefined', () => {
+    const { container, rerender } = render(<Input value={undefined} />);
+    fireEvent.change(container.querySelector('input')!, { target: { value: 'Bamboo' } });
+    expect(container.querySelector('input')?.value).toBe('Bamboo');
+
+    // Controlled
+    rerender(<Input value="Light" />);
+    fireEvent.change(container.querySelector('input')!, { target: { value: 'Bamboo' } });
+    expect(container.querySelector('input')?.value).toBe('Light');
+  });
+
+  // https://github.com/ant-design/ant-design/issues/26308
+  it('should display defaultValue when value is undefined', () => {
+    const { container } = render(<Input.TextArea defaultValue="Light" value={undefined} />);
+    expect(container.querySelector('textarea')?.value).toBe('Light');
+  });
+
+  it('onChange event should return HTMLTextAreaElement', () => {
+    const onChange = jest.fn();
+    const { container } = render(<Input.TextArea onChange={onChange} allowClear />);
+
+    function isNativeElement() {
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ target: expect.any(HTMLTextAreaElement) }),
+      );
+
+      onChange.mockReset();
+    }
+
+    // Change
+    fireEvent.change(container.querySelector('textarea')!, { target: { value: 'bamboo' } });
+    isNativeElement();
+
+    // Composition End
+    fireEvent.change(container.querySelector('textarea')!, { target: { value: 'light' } });
+    fireEvent.compositionEnd(container.querySelector('textarea')!);
+    isNativeElement();
+
+    // Reset
+    fireEvent.click(container.querySelector('.ant-input-clear-icon')!);
+    isNativeElement();
+  });
+
+  // https://github.com/ant-design/ant-design/issues/31927
+  it('should correctly when useState', () => {
+    const App: React.FC = () => {
+      const [query, setQuery] = useState('');
+      return (
+        <TextArea
+          allowClear
+          value={query}
+          onChange={(e) => {
+            setQuery(() => e.target.value);
+          }}
+        />
+      );
+    };
+
+    const { container, unmount } = render(<App />);
+    container.querySelector('textarea')?.focus();
+    fireEvent.change(container.querySelector('textarea')!, { target: { value: '111' } });
+    expect(container.querySelector('textarea')?.value).toBe('111');
+
+    fireEvent.click(container.querySelector('.ant-input-clear-icon')!);
+    expect(container.querySelector('textarea')?.value).toBe('');
+
+    unmount();
+  });
+
+  // https://github.com/ant-design/ant-design/issues/31200
+  it('should not lost focus when clear input', () => {
+    const onBlur = jest.fn();
+    const { container, unmount } = render(
+      <TextArea allowClear defaultValue="value" onBlur={onBlur} />,
+      {
+        container: document.body,
+      },
+    );
+    container.querySelector('textarea')?.focus();
+    fireEvent.mouseDown(container.querySelector('.ant-input-clear-icon')!);
+    fireEvent.click(container.querySelector('.ant-input-clear-icon')!);
+    fireEvent.mouseUp(container.querySelector('.ant-input-clear-icon')!);
+    fireEvent.focus(container.querySelector('.ant-input-clear-icon')!);
+    fireEvent.click(container.querySelector('.ant-input-clear-icon')!);
+    expect(onBlur).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('should focus text area after clear', () => {
+    const { container, unmount } = render(<TextArea allowClear defaultValue="111" />, {
+      container: document.body,
+    });
+    fireEvent.click(container.querySelector('.ant-input-clear-icon')!);
+    expect(document.activeElement).toBe(container.querySelector('textarea'));
+    unmount();
+  });
+
+  it('should display boolean value as string', () => {
+    const { container, rerender } = render(
+      <TextArea value={true as unknown as TextareaHTMLAttributes<HTMLTextAreaElement>['value']} />,
+    );
+    expect(container.querySelector('textarea')?.value).toBe('true');
+    rerender(
+      <TextArea value={false as unknown as TextareaHTMLAttributes<HTMLTextAreaElement>['value']} />,
+    );
+    expect(container.querySelector('textarea')?.value).toBe('false');
+  });
+
+  it('should focus when clearBtn is clicked in controlled case', () => {
+    const handleFocus = jest.fn();
+
+    const textareaSpy = spyElementPrototypes(HTMLTextAreaElement, {
+      focus: handleFocus,
+    });
+
+    const Demo: React.FC = () => {
+      const [value, setValue] = React.useState('');
+      return <Input.TextArea allowClear value={value} onChange={(e) => setValue(e.target.value)} />;
+    };
+
+    const { container } = render(<Demo />);
+    fireEvent.change(container.querySelector('textarea')!, { target: { value: 'test' } });
+    expect(container.querySelector('.ant-input-clear-icon')).not.toHaveClass(
+      'ant-input-clear-icon-hidden',
+    );
+    fireEvent.click(container.querySelector('.ant-input-clear-icon')!);
+    expect(handleFocus).toHaveBeenCalledTimes(1);
+
+    textareaSpy.mockRestore();
+  });
+
+  it('should support custom clearIcon', () => {
+    const { container } = render(<TextArea allowClear={{ clearIcon: 'clear' }} />);
+    expect(container.querySelector('.ant-input-clear-icon')?.textContent).toBe('clear');
+  });
+
+  it('classNames and styles should work', () => {
+    const { container } = render(
+      <>
+        <TextArea
+          className="custom-class"
+          style={{ background: 'red' }}
+          classNames={{
+            root: 'custom-root',
+            textarea: 'custom-textarea',
+            count: 'custom-count',
+          }}
+          styles={{
+            root: {
+              color: 'red',
+            },
+            textarea: {
+              color: 'red',
+            },
+            count: {
+              color: 'blue',
+            },
+          }}
+        />
+        <TextArea
+          showCount
+          className="custom-class"
+          style={{ background: 'red' }}
+          classNames={{
+            root: 'custom-root',
+            textarea: 'custom-textarea',
+            count: 'custom-count',
+          }}
+          styles={{
+            root: {
+              color: 'red',
+            },
+            textarea: {
+              color: 'red',
+            },
+            count: {
+              color: 'blue',
+            },
+          }}
+        />
+      </>,
+    );
+    expect(container).toMatchSnapshot();
+  });
+
+  it('legacy bordered should work', () => {
+    const errSpy = jest.spyOn(console, 'error');
+    const { container } = render(<TextArea bordered={false} />);
+    expect(container.querySelector('textarea')).toHaveClass('ant-input-borderless');
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('`bordered` is deprecated'));
+    errSpy.mockRestore();
+  });
+
+  it('resize: both', async () => {
+    const { container } = render(<TextArea showCount style={{ resize: 'both' }} />);
+
+    fireEvent.mouseDown(container.querySelector('textarea')!);
+
+    triggerResize(container.querySelector('textarea')!);
+    await waitFakeTimer();
+
+    expect(container.querySelector('.ant-input-textarea-affix-wrapper')).toHaveClass(
+      'ant-input-textarea-affix-wrapper-resize-dirty',
+    );
+    expect(container.querySelector('.ant-input-mouse-active')).toBeTruthy();
+
+    fireEvent.mouseUp(container.querySelector('textarea')!);
+    expect(container.querySelector('.ant-input-mouse-active')).toBeFalsy();
+  });
+
+  describe('ref.nativeElement should be the root div', () => {
+    it('basic', () => {
+      const ref = React.createRef<TextAreaRef>();
+      const { container } = render(<TextArea ref={ref} />);
+      expect(ref.current?.nativeElement).toBe(container.firstChild);
+    });
+
+    it('with showCount', () => {
+      const ref = React.createRef<TextAreaRef>();
+      const { container } = render(<TextArea ref={ref} showCount />);
+      expect(ref.current?.nativeElement).toBe(container.firstChild);
+    });
+  });
+});

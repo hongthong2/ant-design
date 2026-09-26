@@ -1,40 +1,46 @@
 import * as React from 'react';
-import { useState, useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import DownOutlined from '@ant-design/icons/DownOutlined';
-import { convertDataToEntities } from 'rc-tree/lib/utils/treeUtil';
-import { conductCheck } from 'rc-tree/lib/utils/conductUtil';
-import { arrAdd, arrDel } from 'rc-tree/lib/util';
-import { DataNode, GetCheckDisabled } from 'rc-tree/lib/interface';
-import { INTERNAL_COL_DEFINE } from 'rc-table';
-import { FixedType } from 'rc-table/lib/interface';
-import useMergedState from 'rc-util/lib/hooks/useMergedState';
-import Checkbox, { CheckboxProps } from '../../checkbox';
+import { INTERNAL_COL_DEFINE } from '@rc-component/table';
+import type { FixedType } from '@rc-component/table';
+import { arrAdd, arrDel, conductCheck, convertDataToEntities } from '@rc-component/tree';
+import type { DataNode } from '@rc-component/tree';
+import { useControlledState } from '@rc-component/util';
+import { clsx } from 'clsx';
+
+import { useMultipleSelect } from '../../_util/hooks';
+import { isFunction, isPlainObject } from '../../_util/is';
+import type { AnyObject } from '../../_util/type';
+import { devUseWarning } from '../../_util/warning';
+import type { CheckboxProps } from '../../checkbox';
+import Checkbox from '../../checkbox';
 import Dropdown from '../../dropdown';
-import Menu from '../../menu';
+import type { RadioProps } from '../../radio';
 import Radio from '../../radio';
-import devWarning from '../../_util/devWarning';
-import {
-  TableRowSelection,
-  Key,
+import type {
   ColumnsType,
-  GetRowKey,
-  TableLocale,
-  SelectionItem,
-  TransformColumns,
+  ColumnType,
   ExpandType,
   GetPopupContainer,
+  GetRowKey,
+  Key,
+  RowSelectMethod,
+  SelectionItem,
+  TableLocale,
+  TableRowSelection,
+  TransformColumns,
 } from '../interface';
 
 // TODO: warning if use ajax!!!
+
+export const SELECTION_COLUMN = {} as const;
 export const SELECTION_ALL = 'SELECT_ALL' as const;
 export const SELECTION_INVERT = 'SELECT_INVERT' as const;
 export const SELECTION_NONE = 'SELECT_NONE' as const;
 
-function getFixedType<RecordType>(column: ColumnsType<RecordType>[number]): FixedType | undefined {
-  return column && column.fixed;
-}
+const EMPTY_LIST: React.Key[] = [];
 
-interface UseSelectionConfig<RecordType> {
+interface UseSelectionConfig<RecordType = AnyObject> {
   prefixCls: string;
   pageData: RecordType[];
   data: RecordType[];
@@ -42,7 +48,6 @@ interface UseSelectionConfig<RecordType> {
   getRecordByKey: (key: Key) => RecordType;
   expandType: ExpandType;
   childrenColumnName: string;
-  expandIconColumnIndex?: number;
   locale: TableLocale;
   getPopupContainer?: GetPopupContainer;
 }
@@ -53,34 +58,30 @@ export type INTERNAL_SELECTION_ITEM =
   | typeof SELECTION_INVERT
   | typeof SELECTION_NONE;
 
-function flattenData<RecordType>(
-  data: RecordType[] | undefined,
-  childrenColumnName: string,
-): RecordType[] {
-  let list: RecordType[] = [];
-  (data || []).forEach(record => {
+const flattenData = <RecordType extends AnyObject = AnyObject>(
+  childrenColumnName: keyof RecordType,
+  data?: RecordType[],
+  list: RecordType[] = [],
+): RecordType[] => {
+  (data || []).forEach((record) => {
     list.push(record);
-
-    if (record && typeof record === 'object' && childrenColumnName in record) {
-      list = [
-        ...list,
-        ...flattenData<RecordType>((record as any)[childrenColumnName], childrenColumnName),
-      ];
+    if (isPlainObject(record) && childrenColumnName in record) {
+      flattenData<RecordType>(childrenColumnName, record[childrenColumnName], list);
     }
   });
-
   return list;
-}
+};
 
-export default function useSelection<RecordType>(
-  rowSelection: TableRowSelection<RecordType> | undefined,
+const useSelection = <RecordType extends AnyObject = AnyObject>(
   config: UseSelectionConfig<RecordType>,
-): [TransformColumns<RecordType>, Set<Key>] {
+  rowSelection?: TableRowSelection<RecordType>,
+): readonly [TransformColumns<RecordType>, Set<Key>] => {
   const {
     preserveSelectedRowKeys,
     selectedRowKeys,
     defaultSelectedRowKeys,
     getCheckboxProps,
+    getTitleCheckboxProps,
     onChange: onSelectionChange,
     onSelect,
     onSelectAll,
@@ -105,17 +106,22 @@ export default function useSelection<RecordType>(
     expandType,
     childrenColumnName,
     locale: tableLocale,
-    expandIconColumnIndex,
     getPopupContainer,
   } = config;
 
-  // ========================= Keys =========================
-  const [mergedSelectedKeys, setMergedSelectedKeys] = useMergedState(
-    selectedRowKeys || defaultSelectedRowKeys || [],
-    {
-      value: selectedRowKeys,
-    },
+  const warning = devUseWarning('Table');
+
+  // ========================= MultipleSelect =========================
+  const [multipleSelect, updatePrevSelectedIndex] = useMultipleSelect<React.Key, React.Key>(
+    (item) => item,
   );
+
+  // ========================= Keys =========================
+  const [mergedSelectedKeys, setMergedSelectedKeys] = useControlledState(
+    defaultSelectedRowKeys || EMPTY_LIST,
+    selectedRowKeys,
+  );
+  const mergedSelectedKeyList = mergedSelectedKeys ?? EMPTY_LIST;
 
   // ======================== Caches ========================
   const preserveRecordsRef = React.useRef(new Map<Key, RecordType>());
@@ -125,7 +131,7 @@ export default function useSelection<RecordType>(
       if (preserveSelectedRowKeys) {
         const newCache = new Map<Key, RecordType>();
         // Keep key if mark as preserveSelectedRowKeys
-        keys.forEach(key => {
+        keys.forEach((key) => {
           let record = getRecordByKey(key);
 
           if (!record && preserveRecordsRef.current.has(key)) {
@@ -143,25 +149,35 @@ export default function useSelection<RecordType>(
 
   // Update cache with selectedKeys
   React.useEffect(() => {
-    updatePreserveRecordsCache(mergedSelectedKeys);
-  }, [mergedSelectedKeys]);
-
-  const { keyEntities } = useMemo(
-    () =>
-      checkStrictly
-        ? { keyEntities: null }
-        : convertDataToEntities(data as unknown as DataNode[], {
-            externalGetKey: getRowKey as any,
-            childrenPropName: childrenColumnName,
-          }),
-    [data, getRowKey, checkStrictly, childrenColumnName],
-  );
+    updatePreserveRecordsCache(mergedSelectedKeyList);
+  }, [mergedSelectedKeyList, updatePreserveRecordsCache]);
 
   // Get flatten data
   const flattedData = useMemo(
-    () => flattenData(pageData, childrenColumnName),
-    [pageData, childrenColumnName],
+    () => flattenData(childrenColumnName, pageData),
+    [childrenColumnName, pageData],
   );
+
+  const { keyEntities } = useMemo(() => {
+    if (checkStrictly) {
+      return { keyEntities: null };
+    }
+    let convertData = data;
+    if (preserveSelectedRowKeys) {
+      // use flattedData keys
+      const keysSet = new Set(flattedData.map(getRowKey));
+      // remove preserveRecords that duplicate data
+      const preserveRecords = Array.from(preserveRecordsRef.current).reduce<RecordType[]>(
+        (total, [key, value]) => (keysSet.has(key) ? total : total.concat(value)),
+        [],
+      );
+      convertData = [...convertData, ...preserveRecords];
+    }
+    return convertDataToEntities(convertData as unknown as DataNode[], {
+      externalGetKey: getRowKey as any,
+      childrenPropName: childrenColumnName,
+    });
+  }, [data, getRowKey, checkStrictly, childrenColumnName, preserveSelectedRowKeys, flattedData]);
 
   // Get all checkbox props
   const checkboxPropsMap = useMemo(() => {
@@ -171,59 +187,61 @@ export default function useSelection<RecordType>(
       const checkboxProps = (getCheckboxProps ? getCheckboxProps(record) : null) || {};
       map.set(key, checkboxProps);
 
-      if (
-        process.env.NODE_ENV !== 'production' &&
-        ('checked' in checkboxProps || 'defaultChecked' in checkboxProps)
-      ) {
-        devWarning(
-          false,
-          'Table',
-          'Do not set `checked` or `defaultChecked` in `getCheckboxProps`. Please use `selectedRowKeys` instead.',
-        );
-      }
+      warning(
+        !('checked' in checkboxProps || 'defaultChecked' in checkboxProps),
+        'usage',
+        'Do not set `checked` or `defaultChecked` in `getCheckboxProps`. Please use `selectedRowKeys` instead.',
+      );
     });
     return map;
   }, [flattedData, getRowKey, getCheckboxProps]);
 
-  const isCheckboxDisabled: GetCheckDisabled<RecordType> = useCallback(
-    (r: RecordType) => !!checkboxPropsMap.get(getRowKey(r))?.disabled,
+  const isCheckboxDisabled = useCallback(
+    (r: RecordType): boolean => {
+      const rowKey = getRowKey(r);
+      let checkboxProps: Partial<CheckboxProps> | undefined;
+      if (checkboxPropsMap.has(rowKey)) {
+        checkboxProps = checkboxPropsMap.get(getRowKey(r));
+      } else {
+        checkboxProps = getCheckboxProps ? getCheckboxProps(r) : undefined;
+      }
+      return !!checkboxProps?.disabled;
+    },
     [checkboxPropsMap, getRowKey],
   );
 
   const [derivedSelectedKeys, derivedHalfSelectedKeys] = useMemo(() => {
     if (checkStrictly) {
-      return [mergedSelectedKeys || [], []];
+      return [mergedSelectedKeyList, []];
     }
     const { checkedKeys, halfCheckedKeys } = conductCheck(
-      mergedSelectedKeys,
+      mergedSelectedKeyList,
       true,
       keyEntities as any,
       isCheckboxDisabled as any,
     );
     return [checkedKeys || [], halfCheckedKeys];
-  }, [mergedSelectedKeys, checkStrictly, keyEntities, isCheckboxDisabled]);
+  }, [mergedSelectedKeyList, checkStrictly, keyEntities, isCheckboxDisabled]);
 
-  const derivedSelectedKeySet: Set<Key> = useMemo(() => {
+  const derivedSelectedKeySet = useMemo<Set<Key>>(() => {
     const keys = selectionType === 'radio' ? derivedSelectedKeys.slice(0, 1) : derivedSelectedKeys;
     return new Set(keys);
   }, [derivedSelectedKeys, selectionType]);
-  const derivedHalfSelectedKeySet = useMemo(
+
+  const derivedHalfSelectedKeySet = useMemo<Set<Key>>(
     () => (selectionType === 'radio' ? new Set() : new Set(derivedHalfSelectedKeys)),
     [derivedHalfSelectedKeys, selectionType],
   );
 
-  // Save last selected key to enable range selection
-  const [lastSelectedKey, setLastSelectedKey] = useState<Key | null>(null);
-
   // Reset if rowSelection reset
   React.useEffect(() => {
     if (!rowSelection) {
-      setMergedSelectedKeys([]);
+      setMergedSelectedKeys(EMPTY_LIST);
     }
   }, [!!rowSelection]);
 
   const setSelectedKeys = useCallback(
-    (keys: Key[]) => {
+    (keys: Key[], method: RowSelectMethod) => {
       let availableKeys: Key[];
       let records: RecordType[];
 
@@ -231,13 +249,13 @@ export default function useSelection<RecordType>(
 
       if (preserveSelectedRowKeys) {
         availableKeys = keys;
-        records = keys.map(key => preserveRecordsRef.current.get(key)!);
+        records = keys.map((key) => preserveRecordsRef.current.get(key)!);
       } else {
         // Filter key which not exist in the `dataSource`
         availableKeys = [];
         records = [];
 
-        keys.forEach(key => {
+        keys.forEach((key) => {
           const record = getRecordByKey(key);
           if (record !== undefined) {
             availableKeys.push(key);
@@ -248,7 +266,7 @@ export default function useSelection<RecordType>(
 
       setMergedSelectedKeys(availableKeys);
 
-      onSelectionChange?.(availableKeys, records);
+      onSelectionChange?.(availableKeys, records, { type: method });
     },
     [setMergedSelectedKeys, getRecordByKey, onSelectionChange, preserveSelectedRowKeys],
   );
@@ -258,11 +276,11 @@ export default function useSelection<RecordType>(
   const triggerSingleSelection = useCallback(
     (key: Key, selected: boolean, keys: Key[], event: Event) => {
       if (onSelect) {
-        const rows = keys.map(k => getRecordByKey(k));
+        const rows = keys.map<RecordType>(getRecordByKey);
         onSelect(getRecordByKey(key), selected, rows, event);
       }
 
-      setSelectedKeys(keys);
+      setSelectedKeys(keys, 'single');
     },
     [onSelect, getRecordByKey, setSelectedKeys],
   );
@@ -276,24 +294,27 @@ export default function useSelection<RecordType>(
       selections === true ? [SELECTION_ALL, SELECTION_INVERT, SELECTION_NONE] : selections;
 
     return selectionList.map((selection: INTERNAL_SELECTION_ITEM) => {
+      let mergedSelection: SelectionItem;
+
       if (selection === SELECTION_ALL) {
-        return {
+        mergedSelection = {
           key: 'all',
           text: tableLocale.selectionAll,
           onSelect() {
             setSelectedKeys(
-              data
-                .map((record, index) => getRowKey(record, index))
-                .filter(key => {
-                  const checkProps = checkboxPropsMap.get(key);
-                  return !checkProps?.disabled || derivedSelectedKeySet.has(key);
-                }),
+              data.reduce<Key[]>((keys, record, index) => {
+                const key = getRowKey(record, index);
+                if (!isCheckboxDisabled(record) || derivedSelectedKeySet.has(key)) {
+                  keys.push(key);
+                }
+                return keys;
+              }, []),
+              'all',
             );
           },
         };
-      }
-      if (selection === SELECTION_INVERT) {
-        return {
+      } else if (selection === SELECTION_INVERT) {
+        mergedSelection = {
           key: 'invert',
           text: tableLocale.selectInvert,
           onSelect() {
@@ -313,64 +334,95 @@ export default function useSelection<RecordType>(
 
             const keys = Array.from(keySet);
             if (onSelectInvert) {
-              devWarning(
-                false,
-                'Table',
-                '`onSelectInvert` will be removed in future. Please use `onChange` instead.',
-              );
+              warning.deprecated(false, 'onSelectInvert', 'onChange');
               onSelectInvert(keys);
             }
 
-            setSelectedKeys(keys);
+            setSelectedKeys(keys, 'invert');
           },
         };
-      }
-      if (selection === SELECTION_NONE) {
-        return {
+      } else if (selection === SELECTION_NONE) {
+        mergedSelection = {
           key: 'none',
           text: tableLocale.selectNone,
           onSelect() {
             onSelectNone?.();
             setSelectedKeys(
-              Array.from(derivedSelectedKeySet).filter(key => {
+              Array.from(derivedSelectedKeySet).filter((key) => {
                 const checkProps = checkboxPropsMap.get(key);
                 return checkProps?.disabled;
               }),
+              'none',
             );
           },
         };
+      } else {
+        mergedSelection = selection as SelectionItem;
       }
-      return selection as SelectionItem;
+
+      return {
+        ...mergedSelection,
+        onSelect: (currentRowKeys) => {
+          mergedSelection.onSelect?.(currentRowKeys);
+          updatePrevSelectedIndex(null);
+        },
+      };
     });
-  }, [selections, derivedSelectedKeySet, pageData, getRowKey, onSelectInvert, setSelectedKeys]);
+  }, [
+    selections,
+    hideSelectAll,
+    tableLocale.selectionAll,
+    tableLocale.selectInvert,
+    tableLocale.selectNone,
+    checkboxPropsMap,
+    isCheckboxDisabled,
+    derivedSelectedKeySet,
+    data,
+    pageData,
+    getRowKey,
+    onSelectInvert,
+    setSelectedKeys,
+  ]);
 
   // ======================= Columns ========================
   const transformColumns = useCallback(
     (columns: ColumnsType<RecordType>): ColumnsType<RecordType> => {
+      // >>>>>>>>>>> Skip if not exists `rowSelection`
       if (!rowSelection) {
-        return columns;
+        warning(
+          !columns.includes(SELECTION_COLUMN),
+          'usage',
+          '`rowSelection` is not config but `SELECTION_COLUMN` exists in the `columns`.',
+        );
+
+        return columns.filter((col) => col !== SELECTION_COLUMN);
       }
 
-      // Support selection
+      // >>>>>>>>>>> Support selection
+      let cloneColumns = [...columns];
       const keySet = new Set(derivedSelectedKeySet);
 
       // Record key only need check with enabled
-      const recordKeys = flattedData
-        .map(getRowKey)
-        .filter(key => !checkboxPropsMap.get(key)!.disabled);
-      const checkedCurrentAll = recordKeys.every(key => keySet.has(key));
-      const checkedCurrentSome = recordKeys.some(key => keySet.has(key));
+      const recordKeys = flattedData.reduce<Key[]>((keys, record, index) => {
+        const key = getRowKey(record, index);
+        if (!checkboxPropsMap.get(key)!.disabled) {
+          keys.push(key);
+        }
+        return keys;
+      }, []);
+      const checkedCurrentAll = recordKeys.every((key) => keySet.has(key));
+      const checkedCurrentSome = recordKeys.some((key) => keySet.has(key));
 
       const onSelectAllChange = () => {
         const changeKeys: Key[] = [];
 
         if (checkedCurrentAll) {
-          recordKeys.forEach(key => {
+          recordKeys.forEach((key) => {
             keySet.delete(key);
             changeKeys.push(key);
           });
         } else {
-          recordKeys.forEach(key => {
+          recordKeys.forEach((key) => {
             if (!keySet.has(key)) {
               keySet.add(key);
               changeKeys.push(key);
@@ -382,39 +434,38 @@ export default function useSelection<RecordType>(
 
         onSelectAll?.(
           !checkedCurrentAll,
-          keys.map(k => getRecordByKey(k)),
-          changeKeys.map(k => getRecordByKey(k)),
+          keys.map<RecordType>(getRecordByKey),
+          changeKeys.map<RecordType>(getRecordByKey),
         );
 
-        setSelectedKeys(keys);
+        setSelectedKeys(keys, 'all');
+        updatePrevSelectedIndex(null);
       };
 
       // ===================== Render =====================
       // Title Cell
       let title: React.ReactNode;
+      let columnTitleCheckbox: React.ReactNode;
       if (selectionType !== 'radio') {
         let customizeSelections: React.ReactNode;
         if (mergedSelections) {
-          const menu = (
-            <Menu getPopupContainer={getPopupContainer}>
-              {mergedSelections.map((selection, index) => {
-                const { key, text, onSelect: onSelectionClick } = selection;
-                return (
-                  <Menu.Item
-                    key={key || index}
-                    onClick={() => {
-                      onSelectionClick?.(recordKeys);
-                    }}
-                  >
-                    {text}
-                  </Menu.Item>
-                );
-              })}
-            </Menu>
-          );
+          const menu = {
+            getPopupContainer,
+            items: mergedSelections.map((selection, index) => {
+              const { key, text, onSelect: onSelectionClick } = selection;
+
+              return {
+                key: key ?? index,
+                onClick: () => {
+                  onSelectionClick?.(recordKeys);
+                },
+                label: text,
+              };
+            }),
+          };
           customizeSelections = (
             <div className={`${prefixCls}-selection-extra`}>
-              <Dropdown overlay={menu} getPopupContainer={getPopupContainer}>
+              <Dropdown menu={menu} getPopupContainer={getPopupContainer}>
                 <span>
                   <DownOutlined />
                 </span>
@@ -423,13 +474,17 @@ export default function useSelection<RecordType>(
           );
         }
 
-        const allDisabledData = flattedData
-          .map((record, index) => {
-            const key = getRowKey(record, index);
-            const checkboxProps = checkboxPropsMap.get(key) || {};
-            return { checked: keySet.has(key), ...checkboxProps };
-          })
-          .filter(({ disabled }) => disabled);
+        const allDisabledData = flattedData.reduce<
+          Array<Partial<CheckboxProps> & { checked?: boolean }>
+        >((list, record, index) => {
+          const key = getRowKey(record, index);
+          const checkboxProps = checkboxPropsMap.get(key) || {};
+          const item = { checked: keySet.has(key), ...checkboxProps };
+          if (item.disabled) {
+            list.push(item);
+          }
+          return list;
+        }, []);
 
         const allDisabled =
           !!allDisabledData.length && allDisabledData.length === flattedData.length;
@@ -438,22 +493,32 @@ export default function useSelection<RecordType>(
           allDisabled && allDisabledData.every(({ checked }) => checked);
         const allDisabledSomeChecked =
           allDisabled && allDisabledData.some(({ checked }) => checked);
+        const customCheckboxProps = getTitleCheckboxProps?.() || {};
+        const { onChange, disabled } = customCheckboxProps;
+        columnTitleCheckbox = (
+          <Checkbox
+            aria-label={customizeSelections ? 'Custom selection' : 'Select all'}
+            {...customCheckboxProps}
+            checked={
+              !allDisabled ? !!flattedData.length && checkedCurrentAll : allDisabledAndChecked
+            }
+            indeterminate={
+              !allDisabled
+                ? !checkedCurrentAll && checkedCurrentSome
+                : !allDisabledAndChecked && allDisabledSomeChecked
+            }
+            onChange={(e) => {
+              onSelectAllChange();
+              onChange?.(e);
+            }}
+            disabled={disabled ?? (flattedData.length === 0 || allDisabled)}
+            skipGroup
+          />
+        );
 
         title = !hideSelectAll && (
           <div className={`${prefixCls}-selection`}>
-            <Checkbox
-              checked={
-                !allDisabled ? !!flattedData.length && checkedCurrentAll : allDisabledAndChecked
-              }
-              indeterminate={
-                !allDisabled
-                  ? !checkedCurrentAll && checkedCurrentSome
-                  : !allDisabledAndChecked && allDisabledSomeChecked
-              }
-              onChange={onSelectAllChange}
-              disabled={flattedData.length === 0 || allDisabled}
-              skipGroup
-            />
+            {columnTitleCheckbox}
             {customizeSelections}
           </div>
         );
@@ -469,17 +534,23 @@ export default function useSelection<RecordType>(
         renderCell = (_, record, index) => {
           const key = getRowKey(record, index);
           const checked = keySet.has(key);
-
+          const checkboxProps = checkboxPropsMap.get(key) as unknown as RadioProps;
+          const defaultAriaLabel = `Select row ${index + 1}`;
           return {
             node: (
               <Radio
-                {...checkboxPropsMap.get(key)}
+                aria-label={defaultAriaLabel}
+                {...checkboxProps}
                 checked={checked}
-                onClick={e => e.stopPropagation()}
-                onChange={event => {
+                onClick={(e) => {
+                  e.stopPropagation();
+                  checkboxProps?.onClick?.(e);
+                }}
+                onChange={(event) => {
                   if (!keySet.has(key)) {
                     triggerSingleSelection(key, true, [key], event.nativeEvent);
                   }
+                  checkboxProps?.onChange?.(event);
                 }}
               />
             ),
@@ -495,76 +566,49 @@ export default function useSelection<RecordType>(
           let mergedIndeterminate: boolean;
           if (expandType === 'nest') {
             mergedIndeterminate = indeterminate;
-            devWarning(
+            warning(
               typeof checkboxProps?.indeterminate !== 'boolean',
-              'Table',
+              'usage',
               'set `indeterminate` using `rowSelection.getCheckboxProps` is not allowed with tree structured dataSource.',
             );
           } else {
             mergedIndeterminate = checkboxProps?.indeterminate ?? indeterminate;
           }
+          const defaultAriaLabel = checked
+            ? `Row ${index + 1} selected`
+            : `Select row ${index + 1}`;
           // Record checked
           return {
             node: (
               <Checkbox
+                aria-label={defaultAriaLabel}
                 {...checkboxProps}
                 indeterminate={mergedIndeterminate}
                 checked={checked}
                 skipGroup
-                onClick={e => e.stopPropagation()}
-                onChange={({ nativeEvent }) => {
+                onClick={(e) => {
+                  e.stopPropagation();
+                  checkboxProps?.onClick?.(e);
+                }}
+                onChange={(event) => {
+                  const { nativeEvent } = event;
                   const { shiftKey } = nativeEvent;
+                  const currentSelectedIndex = recordKeys.indexOf(key);
+                  const isMultiple =
+                    derivedSelectedKeySet.size > 0 &&
+                    recordKeys.some((key) => derivedSelectedKeySet.has(key));
 
-                  let startIndex: number = -1;
-                  let endIndex: number = -1;
-
-                  // Get range of this
-                  if (shiftKey && checkStrictly) {
-                    const pointKeys = new Set([lastSelectedKey, key]);
-
-                    recordKeys.some((recordKey, recordIndex) => {
-                      if (pointKeys.has(recordKey)) {
-                        if (startIndex === -1) {
-                          startIndex = recordIndex;
-                        } else {
-                          endIndex = recordIndex;
-                          return true;
-                        }
-                      }
-
-                      return false;
-                    });
-                  }
-
-                  if (endIndex !== -1 && startIndex !== endIndex && checkStrictly) {
-                    // Batch update selections
-                    const rangeKeys = recordKeys.slice(startIndex, endIndex + 1);
-                    const changedKeys: Key[] = [];
-
-                    if (checked) {
-                      rangeKeys.forEach(recordKey => {
-                        if (keySet.has(recordKey)) {
-                          changedKeys.push(recordKey);
-                          keySet.delete(recordKey);
-                        }
-                      });
-                    } else {
-                      rangeKeys.forEach(recordKey => {
-                        if (!keySet.has(recordKey)) {
-                          changedKeys.push(recordKey);
-                          keySet.add(recordKey);
-                        }
-                      });
-                    }
-
+                  if (shiftKey && checkStrictly && isMultiple) {
+                    const changedKeys = multipleSelect(currentSelectedIndex, recordKeys, keySet);
                     const keys = Array.from(keySet);
+
                     onSelectMultiple?.(
                       !checked,
-                      keys.map(recordKey => getRecordByKey(recordKey)),
-                      changedKeys.map(recordKey => getRecordByKey(recordKey)),
+                      keys.map<RecordType>(getRecordByKey),
+                      changedKeys.map<RecordType>(getRecordByKey),
                     );
 
-                    setSelectedKeys(keys);
+                    setSelectedKeys(keys, 'multiple');
                   } else {
                     // Single record selected
                     const originCheckedKeys = derivedSelectedKeys;
@@ -600,7 +644,12 @@ export default function useSelection<RecordType>(
                     }
                   }
 
-                  setLastSelectedKey(key);
+                  if (checked) {
+                    updatePrevSelectedIndex(null);
+                  } else {
+                    updatePrevSelectedIndex(currentSelectedIndex);
+                  }
+                  checkboxProps?.onChange?.(event);
                 }}
               />
             ),
@@ -619,26 +668,89 @@ export default function useSelection<RecordType>(
         return node;
       };
 
-      // Columns
-      const selectionColumn = {
-        width: selectionColWidth,
-        className: `${prefixCls}-selection-column`,
-        title: rowSelection.columnTitle || title,
-        render: renderSelectionCell,
-        [INTERNAL_COL_DEFINE]: {
-          className: `${prefixCls}-selection-col`,
-        },
+      // Insert selection column if not exist
+      if (!cloneColumns.includes(SELECTION_COLUMN)) {
+        // Always after expand icon
+        if (
+          cloneColumns.findIndex(
+            (col: any) => col[INTERNAL_COL_DEFINE]?.columnType === 'EXPAND_COLUMN',
+          ) === 0
+        ) {
+          const [expandColumn, ...restColumns] = cloneColumns;
+          cloneColumns = [expandColumn, SELECTION_COLUMN, ...restColumns];
+        } else {
+          // Normal insert at first column
+          cloneColumns = [SELECTION_COLUMN, ...cloneColumns];
+        }
+      }
+
+      // Deduplicate selection column
+      const selectionColumnIndex = cloneColumns.indexOf(SELECTION_COLUMN);
+
+      warning(
+        cloneColumns.filter((col) => col === SELECTION_COLUMN).length <= 1,
+        'usage',
+        'Multiple `SELECTION_COLUMN` exist in `columns`.',
+      );
+
+      cloneColumns = cloneColumns.filter(
+        (column, index) => column !== SELECTION_COLUMN || index === selectionColumnIndex,
+      );
+
+      // Fixed column logic
+      const prevCol: ColumnType<RecordType> & Record<string, any> =
+        cloneColumns[selectionColumnIndex - 1];
+      const nextCol: ColumnType<RecordType> & Record<string, any> =
+        cloneColumns[selectionColumnIndex + 1];
+
+      let mergedFixed: FixedType | undefined = fixed;
+
+      if (mergedFixed === undefined) {
+        if (nextCol?.fixed !== undefined) {
+          mergedFixed = nextCol.fixed;
+        } else if (prevCol?.fixed !== undefined) {
+          mergedFixed = prevCol.fixed;
+        }
+      }
+
+      if (
+        mergedFixed &&
+        prevCol &&
+        prevCol[INTERNAL_COL_DEFINE]?.columnType === 'EXPAND_COLUMN' &&
+        prevCol.fixed === undefined
+      ) {
+        prevCol.fixed = mergedFixed;
+      }
+
+      const columnCls = clsx(`${prefixCls}-selection-col`, {
+        [`${prefixCls}-selection-col-with-dropdown`]: selections && selectionType === 'checkbox',
+      });
+
+      const renderColumnTitle = () => {
+        if (!rowSelection?.columnTitle) {
+          return title;
+        }
+        if (isFunction(rowSelection.columnTitle)) {
+          return rowSelection.columnTitle(columnTitleCheckbox);
+        }
+        return rowSelection.columnTitle;
       };
 
-      if (expandType === 'row' && columns.length && !expandIconColumnIndex) {
-        const [expandColumn, ...restColumns] = columns;
-        const selectionFixed = fixed || getFixedType(restColumns[0]);
-        if (selectionFixed) {
-          expandColumn.fixed = selectionFixed;
-        }
-        return [expandColumn, { ...selectionColumn, fixed: selectionFixed }, ...restColumns];
-      }
-      return [{ ...selectionColumn, fixed: fixed || getFixedType(columns[0]) }, ...columns];
+      // Replace with real selection column
+      const selectionColumn: ColumnsType<RecordType>[0] & {
+        RC_TABLE_INTERNAL_COL_DEFINE: Record<string, any>;
+      } = {
+        fixed: mergedFixed,
+        width: selectionColWidth,
+        className: `${prefixCls}-selection-column`,
+        title: renderColumnTitle(),
+        render: renderSelectionCell,
+        onCell: rowSelection.onCell,
+        align: rowSelection.align,
+        [INTERNAL_COL_DEFINE]: { className: columnCls },
+      };
+
+      return cloneColumns.map((col) => (col === SELECTION_COLUMN ? selectionColumn : col));
     },
     [
       getRowKey,
@@ -650,7 +762,6 @@ export default function useSelection<RecordType>(
       selectionColWidth,
       mergedSelections,
       expandType,
-      lastSelectedKey,
       checkboxPropsMap,
       onSelectMultiple,
       triggerSingleSelection,
@@ -658,5 +769,7 @@ export default function useSelection<RecordType>(
     ],
   );
 
-  return [transformColumns, derivedSelectedKeySet];
-}
+  return [transformColumns, derivedSelectedKeySet] as const;
+};
+
+export default useSelection;

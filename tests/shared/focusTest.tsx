@@ -1,9 +1,16 @@
 import React from 'react';
-import { mount, ReactWrapper } from 'enzyme';
-import { sleep } from '../utils';
 
-// eslint-disable-next-line jest/no-export
-export default function focusTest(Component: React.ComponentType<any>, { refFocus = false } = {}) {
+import { fireEvent, render, sleep } from '../utils';
+
+type FocusableRef = {
+  focus: () => void;
+  blur: () => void;
+};
+
+const focusTest = (
+  Component: React.ComponentType<any>,
+  { refFocus = false, blurDelay = 0 } = {},
+) => {
   describe('focus and blur', () => {
     let focused = false;
     let blurred = false;
@@ -21,10 +28,10 @@ export default function focusTest(Component: React.ComponentType<any>, { refFocu
       }
     });
 
-    let container: HTMLElement;
+    let containerHtml: HTMLDivElement;
     beforeEach(() => {
-      container = document.createElement('div');
-      document.body.appendChild(container);
+      containerHtml = document.createElement('div');
+      document.body.appendChild(containerHtml);
       focused = false;
       blurred = false;
     });
@@ -35,90 +42,90 @@ export default function focusTest(Component: React.ComponentType<any>, { refFocu
     });
 
     afterEach(() => {
-      document.body.removeChild(container);
+      document.body.removeChild(containerHtml);
     });
 
-    const getElement = (wrapper: ReactWrapper) => {
-      let ele = wrapper.find('input').first();
-      if (ele.length === 0) {
-        ele = wrapper.find('button').first();
-      }
-      if (ele.length === 0) {
-        ele = wrapper.find('textarea').first();
-      }
-      if (ele.length === 0) {
-        ele = wrapper.find('div[tabIndex]').first();
-      }
-      return ele;
+    const getElement = (container: HTMLElement): HTMLElement => {
+      const element =
+        container.querySelector<HTMLElement>('input') ||
+        container.querySelector<HTMLElement>('button') ||
+        container.querySelector<HTMLElement>('textarea') ||
+        container.querySelector<HTMLElement>('div[tabIndex]');
+
+      expect(element).not.toBeNull();
+      return element!;
     };
 
     if (refFocus) {
       it('Ref: focus() and onFocus', () => {
         const onFocus = jest.fn();
-        const ref = React.createRef<any>();
-        const wrapper = mount(
+        const ref = React.createRef<FocusableRef>();
+        const { container } = render(
           <div>
             <Component onFocus={onFocus} ref={ref} />
           </div>,
         );
-        ref.current.focus();
+        ref.current!.focus();
         expect(focused).toBeTruthy();
 
-        getElement(wrapper).simulate('focus');
+        fireEvent.focus(getElement(container));
         expect(onFocus).toHaveBeenCalled();
       });
 
       it('Ref: blur() and onBlur', async () => {
         jest.useRealTimers();
         const onBlur = jest.fn();
-        const ref = React.createRef<any>();
-        const wrapper = mount(
+        const ref = React.createRef<FocusableRef>();
+        const { container } = render(
           <div>
             <Component onBlur={onBlur} ref={ref} />
           </div>,
         );
 
-        ref.current.blur();
+        ref.current!.blur();
         expect(blurred).toBeTruthy();
 
-        getElement(wrapper).simulate('blur');
-        await sleep(0);
+        fireEvent.blur(getElement(container));
+        await sleep(blurDelay);
         expect(onBlur).toHaveBeenCalled();
       });
 
       it('Ref: autoFocus', () => {
         const onFocus = jest.fn();
-        const wrapper = mount(<Component autoFocus onFocus={onFocus} />);
+        const { container } = render(<Component autoFocus onFocus={onFocus} />);
 
         expect(focused).toBeTruthy();
 
-        getElement(wrapper).simulate('focus');
+        fireEvent.focus(getElement(container));
         expect(onFocus).toHaveBeenCalled();
       });
     } else {
       it('focus() and onFocus', () => {
         const handleFocus = jest.fn();
-        const wrapper = mount(<Component onFocus={handleFocus} />, { attachTo: container });
-        (wrapper.instance() as any).focus();
+        const { container } = render(<Component onFocus={handleFocus} />);
+        fireEvent.focus(getElement(container));
         expect(handleFocus).toHaveBeenCalled();
       });
 
       it('blur() and onBlur', async () => {
         jest.useRealTimers();
         const handleBlur = jest.fn();
-        const wrapper = mount(<Component onBlur={handleBlur} />, { attachTo: container });
-        (wrapper.instance() as any).focus();
+        const { container } = render(<Component onBlur={handleBlur} />);
+        fireEvent.focus(getElement(container));
         await sleep(0);
-        (wrapper.instance() as any).blur();
+        fireEvent.blur(getElement(container));
         await sleep(0);
         expect(handleBlur).toHaveBeenCalled();
       });
 
       it('autoFocus', () => {
         const handleFocus = jest.fn();
-        mount(<Component autoFocus onFocus={handleFocus} />, { attachTo: container });
+        render(<Component autoFocus onFocus={handleFocus} />);
         expect(handleFocus).toHaveBeenCalled();
       });
     }
   });
-}
+};
+
+// eslint-disable-next-line jest/no-export
+export default focusTest;

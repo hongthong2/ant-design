@@ -1,0 +1,268 @@
+import os from 'node:os';
+import path from 'node:path';
+import { defineConfig } from 'dumi';
+import * as fs from 'fs-extra';
+
+import rehypeAntd from './.dumi/rehypeAntd';
+import rehypeChangelog from './.dumi/rehypeChangelog';
+import remarkAnchor from './.dumi/remarkAnchor';
+import remarkAntd from './.dumi/remarkAntd';
+import { version } from './package.json';
+
+const alibabaSansFonts = [
+  {
+    weight: 300,
+    url: 'https://mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*1GSgSYDD_aIAAAAAQsAAAAgAegCCAQ/AlibabaSans-Light.woff2',
+  },
+  {
+    weight: 400,
+    url: 'https://mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*2zEUQqnPNesAAAAAQtAAAAgAegCCAQ/AlibabaSans-Regular.woff2',
+  },
+  {
+    weight: 500,
+    url: 'https://mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*E_cxRbMlZqUAAAAAQuAAAAgAegCCAQ/AlibabaSans-Medium.woff2',
+  },
+  {
+    weight: 600,
+    url: 'https://mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*E_cxRbMlZqUAAAAAQuAAAAgAegCCAQ/AlibabaSans-Bold.woff2',
+  },
+  {
+    weight: 700,
+    url: 'https://mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*E_cxRbMlZqUAAAAAQuAAAAgAegCCAQ/AlibabaSans-Heavy.woff2',
+  },
+] as const;
+
+const alibabaSansFontFaceStyle = alibabaSansFonts
+  .map(
+    ({ weight, url }) => `
+@font-face {
+  font-family: 'AlibabaSans';
+  font-style: normal;
+  font-weight: ${weight};
+  font-display: optional;
+  src: url('${url}') format('woff2');
+}`,
+  )
+  .join('\n');
+
+const isCloudflarePages = process.env.CF_PAGES === '1';
+
+export default defineConfig({
+  plugins: ['dumi-plugin-color-chunk'],
+
+  // For <Link prefetch />
+  routePrefetch: {},
+  manifest: {},
+
+  sitemap: {
+    hostname: 'https://ant.design',
+  },
+
+  conventionRoutes: {
+    // to avoid generate routes for .dumi/pages/index/components/xx
+    exclude: [/index\/components\//],
+  },
+  ssr:
+    process.env.NODE_ENV === 'production'
+      ? {
+          // Cloudflare Pages may crash utoopack loader child processes with SIGBUS.
+          builder: isCloudflarePages ? 'mako' : 'utoopack',
+        }
+      : false,
+  hash: true,
+  mfsu: false,
+  mako: isCloudflarePages && ['Darwin', 'Linux'].includes(os.type()) ? {} : false,
+  utoopack: {
+    devServer: {
+      dynamicHmrChunkLists: true,
+    },
+    watch: {
+      nodeModulesRegexes: ['rc-.*', '.*cssinjs.*', '@rc-component/.*'],
+    },
+  },
+  crossorigin: {},
+  runtimePublicPath: {},
+  outputPath: '_site',
+  favicons: ['https://gw.alipayobjects.com/zos/rmsportal/rlpTLlbMzTNYuZGGCVYM.png'],
+  styles: [alibabaSansFontFaceStyle],
+  resolve: {
+    docDirs: [{ type: 'doc', dir: 'docs' }],
+    atomDirs: [{ type: 'component', dir: 'components' }],
+    codeBlockMode: 'passive',
+  },
+  locales: [
+    { id: 'en-US', name: 'English', suffix: '' },
+    { id: 'zh-CN', name: '中文', suffix: '-cn' },
+  ],
+  define: {
+    antdReproduceVersion: version,
+  },
+  alias: {
+    'antd/lib': path.join(__dirname, 'components'),
+    'antd/es': path.join(__dirname, 'components'),
+    'antd/locale': path.join(__dirname, 'components/locale'),
+    antd: path.join(__dirname, 'components'),
+  },
+  extraRehypePlugins: [rehypeAntd, rehypeChangelog],
+  extraRemarkPlugins: [remarkAntd, remarkAnchor],
+  metas: [
+    { name: 'theme-color', content: '#1677ff' },
+    { name: 'build-time', content: Date.now().toString() },
+    // https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
+    { name: 'build-hash', content: process.env.GITHUB_SHA ?? 'unknown' },
+  ],
+  analytics: {
+    ga_v2: 'UA-72788897-1',
+  },
+  analyze:
+    process.env.NODE_ENV === 'production'
+      ? false
+      : {
+          analyzerPort: 'auto',
+        },
+  links: [
+    ...alibabaSansFonts.map(({ url }) => ({
+      rel: 'preload',
+      as: 'font',
+      href: url,
+      type: 'font/woff2',
+      crossorigin: 'anonymous',
+    })),
+    {
+      rel: 'prefetch',
+      as: 'font',
+      href: '//at.alicdn.com/t/webfont_6e11e43nfj.woff2',
+      type: 'font/woff2',
+      crossorigin: 'anonymous',
+    },
+    {
+      rel: 'prefetch',
+      as: 'font',
+      href: '//at.alicdn.com/t/webfont_6e11e43nfj.woff',
+      type: 'font/woff',
+      crossorigin: 'anonymous',
+    },
+    {
+      rel: 'prefetch',
+      as: 'font',
+      href: '//at.alicdn.com/t/webfont_6e11e43nfj.ttf',
+      type: 'font/ttf',
+      crossorigin: 'anonymous',
+    },
+    {
+      rel: 'prefetch',
+      as: 'font',
+      href: '//at.alicdn.com/t/webfont_exesdog9toj.woff2',
+      type: 'font/woff2',
+      crossorigin: 'anonymous',
+    },
+    {
+      rel: 'prefetch',
+      as: 'font',
+      href: '//at.alicdn.com/t/webfont_exesdog9toj.woff',
+      type: 'font/woff',
+      crossorigin: 'anonymous',
+    },
+    {
+      rel: 'prefetch',
+      as: 'font',
+      href: '//at.alicdn.com/t/webfont_exesdog9toj.ttf',
+      type: 'font/ttf',
+      crossorigin: 'anonymous',
+    },
+    {
+      rel: 'preload',
+      as: 'font',
+      href: '//at.alicdn.com/wf/webfont/exMpJIukiCms/Gsw2PSKrftc1yNWMNlXgw.woff2',
+      type: 'font/woff2',
+      crossorigin: 'anonymous',
+    },
+    {
+      rel: 'preload',
+      as: 'font',
+      href: '//at.alicdn.com/wf/webfont/exMpJIukiCms/vtu73by4O2gEBcvBuLgeu.woff',
+      type: 'font/woff2',
+      crossorigin: 'anonymous',
+    },
+  ],
+  headScripts: [
+    `
+    (function () {
+      // 优先级提高到所有静态资源的前面，语言不对，加载其他静态资源没意义
+      const pathname = location.pathname;
+
+      function isZhCN(pathname) {
+        return /-cn\\/?$/.test(pathname);
+      }
+      function getLocalizedPathname(path, zhCN) {
+        const pathname = path.indexOf('/') === 0 ? path : '/' + path;
+        if (!zhCN) {
+          // to enUS
+          return /\\/?index(-cn)?/.test(pathname) ? '/' : pathname.replace('-cn', '');
+        } else if (pathname === '/') {
+          return '/index-cn';
+        } else if (pathname.endsWith('/')) {
+          return pathname.replace(/\\/$/, '-cn/');
+        }
+        return pathname + '-cn';
+      }
+
+      // 兼容旧的 URL， \`?locale=...\`
+      const queryString = location.search;
+      if (queryString) {
+        const isZhCNConfig = queryString.indexOf('zh-CN') > -1;
+        if (isZhCNConfig && !isZhCN(pathname)) {
+          location.pathname = getLocalizedPathname(pathname, isZhCNConfig);
+        }
+      }
+
+      // 首页无视链接里面的语言设置 https://github.com/ant-design/ant-design/issues/4552
+      const normalizedPathname = pathname || '/';
+      if (normalizedPathname === '/' || normalizedPathname === '/index-cn') {
+        let lang;
+        if (window.localStorage) {
+          const antLocale = localStorage.getItem('ANT_LOCAL_TYPE_KEY');
+          // 尝试解析 JSON，因为可能是被序列化后存储的 "en-US" / en-US https://github.com/ant-design/ant-design/issues/56606
+          try {
+            lang = antLocale ? JSON.parse(antLocale) : localStorage.getItem('locale');
+          } catch (e) {
+            lang = antLocale ? antLocale : localStorage.getItem('locale');
+          }
+        }
+        lang = lang || ((navigator.language || navigator.browserLanguage).toLowerCase() === 'zh-cn'
+            ? 'zh-CN'
+            : 'en-US');
+        // safari is 'zh-cn', while other browser is 'zh-CN';
+        if ((lang === 'zh-CN') !== isZhCN(normalizedPathname)) {
+          location.pathname = getLocalizedPathname(normalizedPathname, lang === 'zh-CN');
+        }
+      }
+      document.documentElement.className += isZhCN(normalizedPathname) ? 'zh-cn' : 'en-us';
+    })();
+    `,
+  ],
+  scripts: [
+    {
+      src: 'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4',
+    },
+    {
+      async: true,
+      content: fs
+        .readFileSync(path.join(__dirname, '.dumi', 'scripts', 'mirror-notify.js'))
+        .toString(),
+    },
+    // Only enable clarity in production environment
+    process.env.NODE_ENV === 'production'
+      ? {
+          async: true,
+          content: fs
+            .readFileSync(path.join(__dirname, '.dumi', 'scripts', 'clarity.js'))
+            .toString(),
+        }
+      : null,
+    {
+      async: true,
+      content: fs.readFileSync(path.join(__dirname, '.dumi', 'scripts', 'webmcp.js')).toString(),
+    },
+  ].filter((script) => !!script),
+});

@@ -1,53 +1,325 @@
 import * as React from 'react';
-import { useContext } from 'react';
-import EyeOutlined from '@ant-design/icons/EyeOutlined';
-import RcImage, { ImageProps } from 'rc-image';
-import defaultLocale from '../locale/en_US';
+import RcImage from '@rc-component/image';
+import type { ImageProps as RcImageProps } from '@rc-component/image';
+import { clsx } from 'clsx';
+
+import type { MaskType } from '../_util/hooks';
+import { useMergeSemantic, useSemanticRootStyle } from '../_util/hooks/useMergeSemantic';
+import type { GenerateSemantic } from '../_util/hooks/useMergeSemantic/semanticType';
+import { devUseWarning } from '../_util/warning';
+import { useComponentConfig } from '../config-provider/context';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
+import useMergedPreviewConfig from './hooks/useMergedPreviewConfig';
+import usePlaceholderConfig, { isPlaceholderConfig } from './hooks/usePlaceholderConfig';
+import usePreviewConfig from './hooks/usePreviewConfig';
 import PreviewGroup, { icons } from './PreviewGroup';
-import { ConfigContext } from '../config-provider';
-import { getTransitionName } from '../_util/motion';
+import Progress from './Progress';
+import type { ProgressClassNames, ProgressStyles } from './Progress';
+import useStyle from './style';
+
+type OriginPreviewConfig = Omit<
+  NonNullable<Exclude<RcImageProps['preview'], boolean>>,
+  'maskClosable'
+>;
+
+export type DeprecatedPreviewConfig = {
+  /** @deprecated Use `open` instead */
+  visible?: boolean;
+  /** @deprecated Use `classNames.root` instead */
+  rootClassName?: string;
+  /**
+   * @deprecated This has been removed.
+   * Preview will always be rendered after show.
+   */
+  forceRender?: boolean;
+  /**
+   * @deprecated This has been removed.
+   * Preview will always be rendered after show.
+   */
+  destroyOnClose?: boolean;
+  /** @deprecated Use `actionsRender` instead */
+  toolbarRender?: OriginPreviewConfig['actionsRender'];
+};
+
+export type PreviewConfig = OriginPreviewConfig &
+  DeprecatedPreviewConfig & {
+    /** @deprecated Use `onOpenChange` instead */
+    onVisibleChange?: (visible: boolean, prevVisible: boolean) => void;
+    /** @deprecated Use `classNames.cover` instead */
+    maskClassName?: string;
+    mask?: MaskType | React.ReactNode;
+  };
 
 export interface CompositionImage<P> extends React.FC<P> {
   PreviewGroup: typeof PreviewGroup;
 }
 
-const Image: CompositionImage<ImageProps> = ({
-  prefixCls: customizePrefixCls,
-  preview,
-  ...otherProps
-}) => {
-  const { getPrefixCls } = useContext(ConfigContext);
-  const prefixCls = getPrefixCls('image', customizePrefixCls);
-  const rootPrefixCls = getPrefixCls();
+export interface ImageProgressConfig {
+  percent?: number;
+  /** Custom render function, receives default progress UI and percent */
+  render?: (progress: React.ReactNode, percent: number) => React.ReactNode;
+}
 
-  const { locale: contextLocale = defaultLocale } = useContext(ConfigContext);
-  const imageLocale = contextLocale.Image || defaultLocale.Image;
-
-  const mergedPreview = React.useMemo(() => {
-    if (preview === false) {
-      return preview;
-    }
-    const _preview = typeof preview === 'object' ? preview : {};
-
-    return {
-      mask: (
-        <div className={`${prefixCls}-mask-info`}>
-          <EyeOutlined />
-          {imageLocale?.preview}
-        </div>
-      ),
-      icons,
-      ..._preview,
-      transitionName: getTransitionName(rootPrefixCls, 'zoom', _preview.transitionName),
-      maskTransitionName: getTransitionName(rootPrefixCls, 'fade', _preview.maskTransitionName),
+export type PlaceholderType =
+  | React.ReactNode
+  | {
+      progress?: boolean | ImageProgressConfig;
     };
-  }, [preview, imageLocale]);
 
-  return <RcImage prefixCls={prefixCls} preview={mergedPreview} {...otherProps} />;
+export type ImageSemanticType = {
+  classNames?: {
+    root?: string;
+    image?: string;
+    cover?: string;
+    placeholder?: {
+      progress?: ProgressClassNames;
+    };
+    popup?: {
+      root?: string;
+      mask?: string;
+      body?: string;
+      footer?: string;
+      actions?: string;
+      close?: string;
+    };
+  };
+  styles?: {
+    root?: React.CSSProperties;
+    image?: React.CSSProperties;
+    cover?: React.CSSProperties;
+    placeholder?: {
+      progress?: ProgressStyles;
+    };
+    popup?: {
+      root?: React.CSSProperties;
+      mask?: React.CSSProperties;
+      body?: React.CSSProperties;
+      footer?: React.CSSProperties;
+      actions?: React.CSSProperties;
+      close?: React.CSSProperties;
+    };
+  };
 };
 
-export { ImageProps };
+export type ImageSemanticAllType = GenerateSemantic<ImageSemanticType, ImageProps>;
+
+export interface ImageProps
+  extends Omit<RcImageProps, 'preview' | 'classNames' | 'styles' | 'placeholder'> {
+  preview?: boolean | PreviewConfig;
+  /** @deprecated Use `styles.root` instead */
+  wrapperStyle?: React.CSSProperties;
+  classNames?: ImageSemanticAllType['classNamesAndFn'];
+  styles?: ImageSemanticAllType['stylesAndFn'];
+  placeholder?: PlaceholderType;
+}
+
+export type { ProgressClassNames, ProgressStyles };
+
+const Image: CompositionImage<ImageProps> = (props) => {
+  const {
+    prefixCls: customizePrefixCls,
+    preview,
+    className,
+    rootClassName,
+    style,
+    styles,
+    classNames,
+    wrapperStyle,
+    fallback,
+    placeholder,
+    ...otherProps
+  } = props;
+
+  // =============================== MISC ===============================
+  // Context
+  const {
+    getPrefixCls,
+    getPopupContainer: getContextPopupContainer,
+    className: contextClassName,
+    style: contextStyle,
+    preview: contextPreview,
+    styles: contextStyles,
+    classNames: contextClassNames,
+    fallback: contextFallback,
+  } = useComponentConfig('image');
+
+  const prefixCls = getPrefixCls('image', customizePrefixCls);
+
+  // ============================= Warning ==============================
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Image');
+    warning.deprecated(!wrapperStyle, 'wrapperStyle', 'styles.root');
+  }
+
+  // ============================== Styles ==============================
+  const rootCls = useCSSVarCls(prefixCls);
+  const [hashId, cssVarCls] = useStyle(prefixCls, rootCls);
+
+  const mergedRootClassName = clsx(rootClassName, hashId, cssVarCls, rootCls);
+
+  const mergedClassName = clsx(className, hashId, contextClassName);
+
+  // ============================= Preview ==============================
+  const [previewConfig, previewRootClassName, previewMaskClassName] = usePreviewConfig(preview);
+  const [contextPreviewConfig, contextPreviewRootClassName, contextPreviewMaskClassName] =
+    usePreviewConfig(contextPreview);
+
+  const mergedPreviewConfig = useMergedPreviewConfig(
+    // Preview config
+    previewConfig,
+    contextPreviewConfig,
+
+    // MISC
+    prefixCls,
+    mergedRootClassName,
+    getContextPopupContainer,
+    icons,
+
+    true,
+  );
+
+  // =========== Merged Props for Semantic ===========
+  const mergedProps: ImageProps = {
+    ...props,
+    preview: mergedPreviewConfig,
+  };
+
+  // ============================= Semantic =============================
+  const mergedLegacyClassNames = React.useMemo(
+    () => ({
+      cover: clsx(contextPreviewMaskClassName, previewMaskClassName),
+      popup: { root: clsx(contextPreviewRootClassName, previewRootClassName) },
+    }),
+    [
+      previewRootClassName,
+      previewMaskClassName,
+      contextPreviewRootClassName,
+      contextPreviewMaskClassName,
+    ],
+  );
+
+  const { mask: mergedMask, blurClassName } = mergedPreviewConfig ?? {};
+
+  const mergedPopupClassNames = React.useMemo(
+    () => ({
+      mask: clsx(
+        {
+          [`${prefixCls}-preview-mask-hidden`]: !mergedMask,
+        },
+        blurClassName,
+      ),
+    }),
+    [mergedMask, prefixCls, blurClassName],
+  );
+
+  const internalClassNames = React.useMemo<ImageSemanticAllType['classNamesAndFn'][]>(
+    () => [contextClassNames, classNames, mergedLegacyClassNames, { popup: mergedPopupClassNames }],
+    [contextClassNames, classNames, mergedLegacyClassNames, mergedPopupClassNames],
+  );
+
+  const contextImageStyle = useSemanticRootStyle(contextStyle, 'image');
+  const imageStyle = useSemanticRootStyle(style, 'image');
+  const contextRootStyle = useSemanticRootStyle(contextStyle);
+  const rootStyle = useSemanticRootStyle(style);
+
+  const [mergedClassNames, mergedStyles] = useMergeSemantic(
+    internalClassNames,
+    [contextStyles, { root: wrapperStyle }, contextImageStyle, styles, imageStyle],
+    {
+      props: mergedProps,
+    },
+    {
+      popup: { _default: 'root' },
+      placeholder: {},
+    },
+  );
+
+  const [, progressMergedStyles] = useMergeSemantic<
+    ImageSemanticAllType['classNames'],
+    ImageSemanticAllType['styles'],
+    ImageProps
+  >(
+    [],
+    [contextStyles, contextRootStyle, { root: wrapperStyle }, styles, rootStyle],
+    {
+      props: mergedProps,
+    },
+    {
+      popup: { _default: 'root' },
+      placeholder: {},
+    },
+  );
+
+  const { image: mergedImageStyle, ...restMergedStyles } = mergedStyles;
+  const mergedFallback: RcImageProps['fallback'] = fallback ?? contextFallback;
+
+  // ============================= Progress ==============================
+  const { progressConfig } = usePlaceholderConfig(placeholder);
+  const showProgressOverlay = progressConfig !== undefined;
+
+  const { percent, render: progressRender } = progressConfig || {};
+
+  // Get progress classNames and styles
+  const progressClassNames = mergedClassNames?.placeholder?.progress as
+    | ProgressClassNames
+    | undefined;
+  const progressStyles = progressMergedStyles?.placeholder?.progress as ProgressStyles | undefined;
+
+  // ============================== Render ==============================
+  const { width, height, src, ...restOtherProps } = otherProps;
+
+  // When placeholder is ReactNode (not progress config) and src is not provided,
+  // render it as an overlay since rc-image would set status to 'error' when src is empty
+  const placeholderNode = isPlaceholderConfig(placeholder) ? undefined : placeholder;
+  const shouldRenderPlaceholderOverlay = placeholderNode && !src;
+
+  // Memoize the placeholder render function to avoid creating new function on each render
+  const mergedProgressRender = shouldRenderPlaceholderOverlay
+    ? (_progress: React.ReactNode) => placeholderNode
+    : progressRender;
+
+  // When progress is active, render only progress layer with dimensions
+  if (showProgressOverlay || shouldRenderPlaceholderOverlay) {
+    return (
+      <Progress
+        prefixCls={prefixCls}
+        percent={percent}
+        render={mergedProgressRender}
+        classNames={progressClassNames}
+        styles={progressStyles}
+        rootClassName={clsx(mergedRootClassName, mergedClassName)}
+        rootStyle={progressMergedStyles?.root}
+        width={width}
+        height={height}
+      />
+    );
+  }
+
+  return (
+    <RcImage
+      prefixCls={prefixCls}
+      preview={mergedPreviewConfig || false}
+      rootClassName={mergedRootClassName}
+      className={mergedClassName}
+      style={mergedImageStyle}
+      fallback={mergedFallback}
+      placeholder={placeholderNode}
+      width={width}
+      height={height}
+      src={src}
+      {...restOtherProps}
+      classNames={mergedClassNames}
+      styles={restMergedStyles}
+    />
+  );
+};
+
+export type { PreviewConfig as ImagePreviewType };
 
 Image.PreviewGroup = PreviewGroup;
+
+if (process.env.NODE_ENV !== 'production') {
+  Image.displayName = 'Image';
+}
 
 export default Image;

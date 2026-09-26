@@ -1,28 +1,72 @@
-/* eslint-disable import/prefer-default-export */
-import { ColumnType, ColumnTitle, ColumnTitleProps, Key } from './interface';
+import { isNonNullable } from '@rc-component/util';
+import { isFunction, isPlainObject } from '../_util/is';
+import type { AnyObject } from '../_util/type';
+import type { SizeType } from '../config-provider/SizeContext';
+import type {
+  ColumnTitle,
+  ColumnTitleProps,
+  ColumnType,
+  Key,
+  TablePaginationPlacement,
+  TablePaginationPosition,
+} from './interface';
 
-export function getColumnKey<RecordType>(column: ColumnType<RecordType>, defaultKey: string): Key {
-  if ('key' in column && column.key !== undefined && column.key !== null) {
+export const getColumnKey = <RecordType extends AnyObject = AnyObject>(
+  column: ColumnType<RecordType>,
+  defaultKey: string,
+) => {
+  if ('key' in column && isNonNullable(column.key)) {
     return column.key;
   }
   if (column.dataIndex) {
-    return (Array.isArray(column.dataIndex) ? column.dataIndex.join('.') : column.dataIndex) as Key;
+    return Array.isArray(column.dataIndex) ? column.dataIndex.join('.') : (column.dataIndex as Key);
   }
-
   return defaultKey;
-}
+};
 
 export function getColumnPos(index: number, pos?: string) {
   return pos ? `${pos}-${index}` : `${index}`;
 }
 
-export function renderColumnTitle<RecordType>(
+export const renderColumnTitle = <RecordType extends AnyObject = AnyObject>(
   title: ColumnTitle<RecordType>,
   props: ColumnTitleProps<RecordType>,
-) {
-  if (typeof title === 'function') {
+) => {
+  if (isFunction(title)) {
     return title(props);
   }
-
   return title;
-}
+};
+
+/**
+ * @description Safe get column title, Should filter object
+ * @param title
+ */
+export const safeColumnTitle = <RecordType extends AnyObject = AnyObject>(
+  title: ColumnTitle<RecordType>,
+  props: ColumnTitleProps<RecordType>,
+) => {
+  const result = renderColumnTitle<RecordType>(title, props);
+  if (isPlainObject<RecordType>(result) || Array.isArray(result)) {
+    return '';
+  }
+  return result;
+};
+
+export const normalizePlacement = (pos: TablePaginationPlacement | TablePaginationPosition) => {
+  const lowerPos = pos.toLowerCase();
+  if (lowerPos.includes('center')) {
+    return 'center';
+  }
+  return lowerPos.includes('left') || lowerPos.includes('start') ? 'start' : 'end';
+};
+
+export const getPaginationSize = (paginationSize: SizeType, mergedSize: SizeType): SizeType => {
+  if (paginationSize) {
+    return paginationSize;
+  }
+  if (mergedSize === 'small' || mergedSize === 'medium') {
+    return 'small';
+  }
+  return undefined;
+};

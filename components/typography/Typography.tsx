@@ -1,75 +1,106 @@
 import * as React from 'react';
-import classNames from 'classnames';
-import { composeRef } from 'rc-util/lib/ref';
-import { ConfigConsumer, ConfigConsumerProps } from '../config-provider';
-import devWarning from '../_util/devWarning';
+import type { JSX } from 'react';
+import { clsx } from 'clsx';
 
-export interface TypographyProps {
-  id?: string;
-  prefixCls?: string;
+import type { DirectionType } from '../config-provider';
+import type { BaseTypographyProps, TypographySemanticType } from './Base';
+import { useTypographySemantic } from './hooks/useTypographySemantic';
+import useStyle from './style';
+
+export interface TypographyProps<C extends keyof JSX.IntrinsicElements = any>
+  extends BaseTypographyProps {
+  /** @internal */
+  component?: C;
+}
+
+interface InternalProps extends React.HTMLAttributes<HTMLElement> {
   className?: string;
+  rootClassName?: string;
   style?: React.CSSProperties;
   children?: React.ReactNode;
-  ['aria-label']?: string;
+  component?: keyof JSX.IntrinsicElements;
+  direction?: DirectionType;
+  classNames?: TypographySemanticType['classNames'];
+  styles?: TypographySemanticType['styles'];
+  prefixCls: string;
 }
-
-interface InternalTypographyProps extends TypographyProps {
-  component?: string;
-  /** @deprecated Use `ref` directly if using React 16 */
-  setContentRef?: (node: HTMLElement) => void;
-}
-
-const Typography: React.ForwardRefRenderFunction<{}, InternalTypographyProps> = (
-  {
-    prefixCls: customizePrefixCls,
-    component = 'article',
+const InternalTypography = React.forwardRef<HTMLElement, InternalProps>((props, ref) => {
+  const {
+    component: Component = 'article',
     className,
-    'aria-label': ariaLabel,
-    setContentRef,
+    rootClassName,
     children,
+    direction,
+    style,
+    classNames,
+    styles,
+    prefixCls,
     ...restProps
-  },
-  ref,
-) => {
-  let mergedRef = ref;
+  } = props;
 
-  if (setContentRef) {
-    devWarning(false, 'Typography', '`setContentRef` is deprecated. Please use `ref` instead.');
-    mergedRef = composeRef(ref, setContentRef);
-  }
+  const [hashId, cssVarCls] = useStyle(prefixCls);
+
+  const componentClassName = clsx(
+    prefixCls,
+    {
+      [`${prefixCls}-rtl`]: direction === 'rtl',
+    },
+    className,
+    rootClassName,
+    hashId,
+    cssVarCls,
+    classNames?.root,
+  );
+
+  const mergedStyle: React.CSSProperties = {
+    ...styles?.root,
+    ...style,
+  };
 
   return (
-    <ConfigConsumer>
-      {({ getPrefixCls, direction }: ConfigConsumerProps) => {
-        const Component = component as any;
-        const prefixCls = getPrefixCls('typography', customizePrefixCls);
-        const componentClassName = classNames(
-          prefixCls,
-          {
-            [`${prefixCls}-rtl`]: direction === 'rtl',
-          },
-          className,
-        );
-        return (
-          <Component
-            className={componentClassName}
-            aria-label={ariaLabel}
-            ref={mergedRef}
-            {...restProps}
-          >
-            {children}
-          </Component>
-        );
-      }}
-    </ConfigConsumer>
+    // @ts-expect-error: Expression produces a union type that is too complex to represent.
+    <Component {...restProps} className={componentClassName} style={mergedStyle} ref={ref}>
+      {children}
+    </Component>
   );
-};
+});
 
-const RefTypography = React.forwardRef(Typography);
+if (process.env.NODE_ENV !== 'production') {
+  InternalTypography.displayName = 'InternalTypography';
+}
 
-RefTypography.displayName = 'Typography';
+const Typography = React.forwardRef<HTMLElement, TypographyProps<keyof JSX.IntrinsicElements>>(
+  (props, ref) => {
+    const {
+      prefixCls: customizePrefixCls,
+      className,
+      rootClassName,
+      direction: typographyDirection,
+      classNames,
+      styles,
+      ...restProps
+    } = props;
 
-// es default export should use const instead of let
-const ExportTypography = (RefTypography as unknown) as React.FC<TypographyProps>;
+    const [mergedClassNames, mergedStyles, mergedPrefixCls, mergedDirection] =
+      useTypographySemantic(customizePrefixCls, classNames, styles, typographyDirection, props);
 
-export default ExportTypography;
+    return (
+      <InternalTypography
+        ref={ref}
+        className={clsx(className, rootClassName)}
+        direction={mergedDirection}
+        classNames={mergedClassNames}
+        styles={mergedStyles}
+        prefixCls={mergedPrefixCls}
+        {...restProps}
+      />
+    );
+  },
+);
+
+if (process.env.NODE_ENV !== 'production') {
+  Typography.displayName = 'Typography';
+}
+
+export default Typography;
+export { InternalTypography };

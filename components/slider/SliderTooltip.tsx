@@ -1,12 +1,21 @@
 import * as React from 'react';
 import { useRef } from 'react';
-import { composeRef } from 'rc-util/lib/ref';
-import raf from 'rc-util/lib/raf';
-import Tooltip, { TooltipProps } from '../tooltip';
+import type { SliderRef } from '@rc-component/slider';
+import { composeRef, raf } from '@rc-component/util';
 
-const SliderTooltip = React.forwardRef<unknown, TooltipProps>((props, ref) => {
-  const { visible } = props;
+import type { TooltipProps } from '../tooltip';
+import Tooltip from '../tooltip';
+
+export type SliderTooltipProps = TooltipProps & {
+  draggingDelete?: boolean;
+  value?: number;
+};
+
+const SliderTooltip = React.forwardRef<SliderRef, SliderTooltipProps>((props, ref) => {
+  const { open, draggingDelete, value } = props;
   const innerRef = useRef<any>(null);
+
+  const mergedOpen = open && !draggingDelete;
 
   const rafRef = useRef<number | null>(null);
 
@@ -17,22 +26,26 @@ const SliderTooltip = React.forwardRef<unknown, TooltipProps>((props, ref) => {
 
   function keepAlign() {
     rafRef.current = raf(() => {
-      innerRef.current?.forcePopupAlign();
+      innerRef.current?.forceAlign();
       rafRef.current = null;
     });
   }
 
   React.useEffect(() => {
-    if (visible) {
+    if (mergedOpen) {
       keepAlign();
     } else {
       cancelKeepAlign();
     }
 
     return cancelKeepAlign;
-  }, [visible, props.title]);
+  }, [mergedOpen, props.title, value]);
 
-  return <Tooltip ref={composeRef(innerRef, ref)} {...props} />;
+  return <Tooltip ref={composeRef(innerRef, ref)} {...props} open={mergedOpen} />;
 });
+
+if (process.env.NODE_ENV !== 'production') {
+  SliderTooltip.displayName = 'SliderTooltip';
+}
 
 export default SliderTooltip;

@@ -1,15 +1,14 @@
-import * as React from 'react';
-import * as ReactDOM from 'react-dom';
-import InfoCircleOutlined from '@ant-design/icons/InfoCircleOutlined';
-import CheckCircleOutlined from '@ant-design/icons/CheckCircleOutlined';
-import CloseCircleOutlined from '@ant-design/icons/CloseCircleOutlined';
-import ExclamationCircleOutlined from '@ant-design/icons/ExclamationCircleOutlined';
-import { getConfirmLocale } from './locale';
-import type { ModalFuncProps } from './Modal';
+import React, { useContext } from 'react';
+import { render, unmount } from '@rc-component/util';
+
+import { isFunction } from '../_util/is';
+import warning from '../_util/warning';
+import ConfigProvider, { ConfigContext, globalConfig, warnContext } from '../config-provider';
+import type { ConfirmDialogProps } from './ConfirmDialog';
 import ConfirmDialog from './ConfirmDialog';
-import { globalConfig } from '../config-provider';
-import devWarning from '../_util/devWarning';
 import destroyFns from './destroyFns';
+import type { ModalFuncProps } from './interface';
+import { getConfirmLocale } from './locale';
 
 let defaultRootPrefixCls = '';
 
@@ -17,95 +16,138 @@ function getRootPrefixCls() {
   return defaultRootPrefixCls;
 }
 
-type ConfigUpdate = ModalFuncProps | ((prevConfig: ModalFuncProps) => ModalFuncProps);
+export type ConfigUpdate = ModalFuncProps | ((prevConfig: ModalFuncProps) => ModalFuncProps);
 
 export type ModalFunc = (props: ModalFuncProps) => {
   destroy: () => void;
   update: (configUpdate: ConfigUpdate) => void;
 };
 
-export type ModalStaticFunctions = Record<NonNullable<ModalFuncProps['type']>, ModalFunc>;
+export type ModalStaticFunctions = {
+  info: ModalFunc;
+  success: ModalFunc;
+  error: ModalFunc;
+  warning: ModalFunc;
+  confirm: ModalFunc;
+  /** @deprecated Please use `warning` instead */
+  warn: ModalFunc;
+};
+
+const ConfirmDialogWrapper: React.FC<ConfirmDialogProps> = (props) => {
+  const { prefixCls: customizePrefixCls, getContainer, direction } = props;
+  const runtimeLocale = getConfirmLocale();
+
+  const config = useContext(ConfigContext);
+  const rootPrefixCls = getRootPrefixCls() || config.getPrefixCls();
+  // because Modal.config set rootPrefixCls, which is different from other components
+  const prefixCls = customizePrefixCls || `${rootPrefixCls}-modal`;
+
+  let mergedGetContainer = getContainer;
+  if (mergedGetContainer === false) {
+    mergedGetContainer = undefined;
+
+    if (process.env.NODE_ENV !== 'production') {
+      warning(
+        false,
+        'Modal',
+        'Static method not support `getContainer` to be `false` since it do not have context env.',
+      );
+    }
+  }
+
+  return (
+    <ConfirmDialog
+      {...props}
+      rootPrefixCls={rootPrefixCls}
+      prefixCls={prefixCls}
+      iconPrefixCls={config.iconPrefixCls}
+      theme={config.theme}
+      direction={direction ?? config.direction}
+      locale={config.locale?.Modal ?? runtimeLocale}
+      getContainer={mergedGetContainer}
+    />
+  );
+};
 
 export default function confirm(config: ModalFuncProps) {
-  const div = document.createElement('div');
-  document.body.appendChild(div);
-  // eslint-disable-next-line @typescript-eslint/no-use-before-define
-  let currentConfig = { ...config, close, visible: true } as any;
+  const global = globalConfig();
+
+  if (process.env.NODE_ENV !== 'production' && !global.holderRender) {
+    warnContext('Modal');
+  }
+
+  const container = document.createDocumentFragment();
+  let currentConfig = { ...config, close, open: true } as any;
+  let timeoutId: ReturnType<typeof setTimeout>;
 
   function destroy(...args: any[]) {
-    const unmountResult = ReactDOM.unmountComponentAtNode(div);
-    if (unmountResult && div.parentNode) {
-      div.parentNode.removeChild(div);
-    }
-    const triggerCancel = args.some(param => param && param.triggerCancel);
-    if (config.onCancel && triggerCancel) {
-      config.onCancel(...args);
+    const triggerCancel = args.some((param) => param?.triggerCancel);
+    if (triggerCancel) {
+      config.onCancel?.(() => {}, ...args.slice(1));
     }
     for (let i = 0; i < destroyFns.length; i++) {
       const fn = destroyFns[i];
-      // eslint-disable-next-line @typescript-eslint/no-use-before-define
       if (fn === close) {
         destroyFns.splice(i, 1);
         break;
       }
     }
+
+    unmount(container).then(() => {
+      // Do nothing
+    });
   }
 
-  function render({ okText, cancelText, prefixCls: customizePrefixCls, ...props }: any) {
+  const scheduleRender = (props: ConfirmDialogProps) => {
+    clearTimeout(timeoutId);
+
     /**
      * https://github.com/ant-design/ant-design/issues/23623
      *
      * Sync render blocks React event. Let's make this async.
      */
-    setTimeout(() => {
-      const runtimeLocale = getConfirmLocale();
-      const { getPrefixCls, getIconPrefixCls } = globalConfig();
-      // because Modal.config  set rootPrefixCls, which is different from other components
-      const rootPrefixCls = getPrefixCls(undefined, getRootPrefixCls());
-      const prefixCls = customizePrefixCls || `${rootPrefixCls}-modal`;
-      const iconPrefixCls = getIconPrefixCls();
+    timeoutId = setTimeout(() => {
+      const rootPrefixCls = global.getPrefixCls(undefined, getRootPrefixCls());
+      const iconPrefixCls = global.getIconPrefixCls();
+      const theme = global.getTheme();
 
-      ReactDOM.render(
-        <ConfirmDialog
-          {...props}
-          prefixCls={prefixCls}
-          rootPrefixCls={rootPrefixCls}
-          iconPrefixCls={iconPrefixCls}
-          okText={okText || (props.okCancel ? runtimeLocale.okText : runtimeLocale.justOkText)}
-          cancelText={cancelText || runtimeLocale.cancelText}
-        />,
-        div,
+      const dom = <ConfirmDialogWrapper {...props} />;
+
+      render(
+        <ConfigProvider prefixCls={rootPrefixCls} iconPrefixCls={iconPrefixCls} theme={theme}>
+          {isFunction(global.holderRender) ? global.holderRender(dom) : dom}
+        </ConfigProvider>,
+        container,
       );
     });
-  }
+  };
 
   function close(...args: any[]) {
     currentConfig = {
       ...currentConfig,
-      visible: false,
+      open: false,
       afterClose: () => {
-        if (typeof config.afterClose === 'function') {
+        if (isFunction(config.afterClose)) {
           config.afterClose();
         }
+        // @ts-ignore
         destroy.apply(this, args);
       },
     };
-    render(currentConfig);
+
+    scheduleRender(currentConfig);
   }
 
   function update(configUpdate: ConfigUpdate) {
-    if (typeof configUpdate === 'function') {
+    if (isFunction(configUpdate)) {
       currentConfig = configUpdate(currentConfig);
     } else {
-      currentConfig = {
-        ...currentConfig,
-        ...configUpdate,
-      };
+      currentConfig = { ...currentConfig, ...configUpdate };
     }
-    render(currentConfig);
+    scheduleRender(currentConfig);
   }
 
-  render(currentConfig);
+  scheduleRender(currentConfig);
 
   destroyFns.push(close);
 
@@ -117,8 +159,6 @@ export default function confirm(config: ModalFuncProps) {
 
 export function withWarn(props: ModalFuncProps): ModalFuncProps {
   return {
-    icon: <ExclamationCircleOutlined />,
-    okCancel: false,
     ...props,
     type: 'warning',
   };
@@ -126,8 +166,6 @@ export function withWarn(props: ModalFuncProps): ModalFuncProps {
 
 export function withInfo(props: ModalFuncProps): ModalFuncProps {
   return {
-    icon: <InfoCircleOutlined />,
-    okCancel: false,
     ...props,
     type: 'info',
   };
@@ -135,8 +173,6 @@ export function withInfo(props: ModalFuncProps): ModalFuncProps {
 
 export function withSuccess(props: ModalFuncProps): ModalFuncProps {
   return {
-    icon: <CheckCircleOutlined />,
-    okCancel: false,
     ...props,
     type: 'success',
   };
@@ -144,8 +180,6 @@ export function withSuccess(props: ModalFuncProps): ModalFuncProps {
 
 export function withError(props: ModalFuncProps): ModalFuncProps {
   return {
-    icon: <CloseCircleOutlined />,
-    okCancel: false,
     ...props,
     type: 'error',
   };
@@ -153,18 +187,12 @@ export function withError(props: ModalFuncProps): ModalFuncProps {
 
 export function withConfirm(props: ModalFuncProps): ModalFuncProps {
   return {
-    icon: <ExclamationCircleOutlined />,
-    okCancel: true,
     ...props,
     type: 'confirm',
   };
 }
 
 export function modalGlobalConfig({ rootPrefixCls }: { rootPrefixCls: string }) {
-  devWarning(
-    false,
-    'Modal',
-    'Modal.config is deprecated. Please use ConfigProvider.config instead.',
-  );
+  warning(false, 'Modal', 'Modal.config is deprecated. Please use ConfigProvider.config instead.');
   defaultRootPrefixCls = rootPrefixCls;
 }

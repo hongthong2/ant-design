@@ -1,23 +1,59 @@
 import * as React from 'react';
-import RcSwitch from 'rc-switch';
-import classNames from 'classnames';
 import LoadingOutlined from '@ant-design/icons/LoadingOutlined';
+import RcSwitch from '@rc-component/switch';
+import type { SwitchChangeEventHandler, SwitchClickEventHandler } from '@rc-component/switch';
+import { useControlledState } from '@rc-component/util';
+import { clsx } from 'clsx';
 
+import { useMergeSemantic, useSemanticRootStyle } from '../_util/hooks/useMergeSemantic';
+import type { GenerateSemantic } from '../_util/hooks/useMergeSemantic/semanticType';
+import { devUseWarning } from '../_util/warning';
 import Wave from '../_util/wave';
-import { ConfigContext } from '../config-provider';
-import SizeContext from '../config-provider/SizeContext';
-import devWarning from '../_util/devWarning';
+import { useComponentConfig } from '../config-provider/context';
+import DisabledContext from '../config-provider/DisabledContext';
+import useSize from '../config-provider/hooks/useSize';
+import type { SizeType } from '../config-provider/SizeContext';
+import useStyle from './style';
 
-export type SwitchSize = 'small' | 'default';
-export type SwitchChangeEventHandler = (checked: boolean, event: MouseEvent) => void;
-export type SwitchClickEventHandler = SwitchChangeEventHandler;
+/**
+ * Note: `default` is deprecated and will be removed in v7, please use `medium` instead.
+ */
+export type SwitchSize = Exclude<SizeType, 'large'> | 'default';
+
+export type { SwitchChangeEventHandler, SwitchClickEventHandler };
+
+export type SwitchSemanticType = {
+  classNames?: {
+    root?: string;
+    content?: string;
+    indicator?: string;
+  };
+  styles?: {
+    root?: React.CSSProperties;
+    content?: React.CSSProperties;
+    indicator?: React.CSSProperties;
+  };
+};
+
+export type SwitchSemanticAllType = GenerateSemantic<SwitchSemanticType, SwitchProps>;
 
 export interface SwitchProps {
   prefixCls?: string;
   size?: SwitchSize;
   className?: string;
+  rootClassName?: string;
   checked?: boolean;
   defaultChecked?: boolean;
+  /**
+   * Alias for `checked`.
+   * @since 5.12.0
+   */
+  value?: boolean;
+  /**
+   * Alias for `defaultChecked`.
+   * @since 5.12.0
+   */
+  defaultValue?: boolean;
   onChange?: SwitchChangeEventHandler;
   onClick?: SwitchClickEventHandler;
   checkedChildren?: React.ReactNode;
@@ -29,65 +65,134 @@ export interface SwitchProps {
   title?: string;
   tabIndex?: number;
   id?: string;
+  classNames?: SwitchSemanticAllType['classNamesAndFn'];
+  styles?: SwitchSemanticAllType['stylesAndFn'];
 }
 
-interface CompoundedComponent
-  extends React.ForwardRefExoticComponent<SwitchProps & React.RefAttributes<HTMLElement>> {
-  __ANT_SWITCH: boolean;
-}
+const InternalSwitch = React.forwardRef<HTMLButtonElement, SwitchProps>((props, ref) => {
+  const {
+    prefixCls: customizePrefixCls,
+    size: customizeSize,
+    disabled: customDisabled,
+    loading,
+    className,
+    rootClassName,
+    style,
+    checked: checkedProp,
+    value,
+    defaultChecked: defaultCheckedProp,
+    defaultValue,
+    onChange,
+    styles,
+    classNames,
+    ...restProps
+  } = props;
 
-const Switch = React.forwardRef<unknown, SwitchProps>(
-  (
+  const [checked, setChecked] = useControlledState<boolean>(
+    defaultCheckedProp ?? defaultValue ?? false,
+    checkedProp ?? value,
+  );
+
+  const {
+    getPrefixCls,
+    direction,
+    className: contextClassName,
+    style: contextStyle,
+    classNames: contextClassNames,
+    styles: contextStyles,
+  } = useComponentConfig('switch');
+
+  // ===================== Disabled =====================
+  const disabled = React.useContext(DisabledContext);
+  const mergedDisabled = (customDisabled ?? disabled) || loading;
+
+  const prefixCls = getPrefixCls('switch', customizePrefixCls);
+
+  // Style
+  const [hashId, cssVarCls] = useStyle(prefixCls);
+
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Switch');
+    warning.deprecated(customizeSize !== 'default', 'size="default"', 'size="medium"');
+  }
+
+  const mergedSize = useSize(customizeSize);
+
+  const mergedProps: SwitchProps = {
+    ...props,
+    size: mergedSize,
+    disabled: mergedDisabled,
+  };
+
+  const contextStyleRoot = useSemanticRootStyle(contextStyle);
+  const styleRoot = useSemanticRootStyle(style);
+
+  const [mergedClassNames, mergedStyles] = useMergeSemantic<
+    SwitchSemanticAllType['classNames'],
+    SwitchSemanticAllType['styles'],
+    SwitchProps
+  >([contextClassNames, classNames], [contextStyles, contextStyleRoot, styles, styleRoot], {
+    props: mergedProps,
+  });
+
+  const loadingIcon = (
+    <div
+      className={clsx(`${prefixCls}-handle`, mergedClassNames.indicator)}
+      style={mergedStyles.indicator}
+    >
+      {loading && <LoadingOutlined className={`${prefixCls}-loading-icon`} />}
+    </div>
+  );
+
+  const classes = clsx(
+    contextClassName,
     {
-      prefixCls: customizePrefixCls,
-      size: customizeSize,
-      loading,
-      className = '',
-      disabled,
-      ...props
+      [`${prefixCls}-small`]: mergedSize === 'small',
+      [`${prefixCls}-loading`]: loading,
+      [`${prefixCls}-rtl`]: direction === 'rtl',
     },
-    ref,
-  ) => {
-    devWarning(
-      'checked' in props || !('value' in props),
-      'Switch',
-      '`value` is not a valid prop, do you mean `checked`?',
-    );
+    className,
+    rootClassName,
+    mergedClassNames.root,
+    hashId,
+    cssVarCls,
+  );
 
-    const { getPrefixCls, direction } = React.useContext(ConfigContext);
-    const size = React.useContext(SizeContext);
-    const prefixCls = getPrefixCls('switch', customizePrefixCls);
-    const loadingIcon = (
-      <div className={`${prefixCls}-handle`}>
-        {loading && <LoadingOutlined className={`${prefixCls}-loading-icon`} />}
-      </div>
-    );
+  const changeHandler: SwitchChangeEventHandler = (...args) => {
+    setChecked(args[0]);
+    onChange?.(...args);
+  };
 
-    const classes = classNames(
-      {
-        [`${prefixCls}-small`]: (customizeSize || size) === 'small',
-        [`${prefixCls}-loading`]: loading,
-        [`${prefixCls}-rtl`]: direction === 'rtl',
-      },
-      className,
-    );
+  return (
+    <Wave component="Switch" disabled={mergedDisabled}>
+      <RcSwitch
+        {...restProps}
+        classNames={mergedClassNames}
+        styles={mergedStyles}
+        checked={checked}
+        onChange={changeHandler}
+        prefixCls={prefixCls}
+        className={classes}
+        style={mergedStyles.root}
+        disabled={mergedDisabled}
+        ref={ref}
+        loadingIcon={loadingIcon}
+      />
+    </Wave>
+  );
+});
 
-    return (
-      <Wave insertExtraNode>
-        <RcSwitch
-          {...props}
-          prefixCls={prefixCls}
-          className={classes}
-          disabled={disabled || loading}
-          ref={ref}
-          loadingIcon={loadingIcon}
-        />
-      </Wave>
-    );
-  },
-) as CompoundedComponent;
+type CompoundedComponent = typeof InternalSwitch & {
+  /** @internal */
+  __ANT_SWITCH: boolean;
+};
+
+const Switch = InternalSwitch as CompoundedComponent;
 
 Switch.__ANT_SWITCH = true;
-Switch.displayName = 'Switch';
+
+if (process.env.NODE_ENV !== 'production') {
+  Switch.displayName = 'Switch';
+}
 
 export default Switch;

@@ -1,101 +1,200 @@
 import * as React from 'react';
-import SlickCarousel, { Settings } from '@ant-design/react-slick';
-import classNames from 'classnames';
-import { ConfigContext } from '../config-provider';
+import type { Settings } from '@ant-design/react-slick';
+import SlickCarousel from '@ant-design/react-slick';
+import { toArray } from '@rc-component/util';
+import { clsx } from 'clsx';
+
+import { isPlainObject } from '../_util/is';
+import { devUseWarning } from '../_util/warning';
+import { useComponentConfig } from '../config-provider/context';
+import { useLocale } from '../locale';
+import defaultLocale from '../locale/en_US';
+import useStyle, { DotDuration } from './style';
 
 export type CarouselEffect = 'scrollx' | 'fade';
-export type DotPosition = 'top' | 'bottom' | 'left' | 'right';
+
+export type DotPlacement = 'top' | 'bottom' | 'start' | 'end';
 
 // Carousel
-export interface CarouselProps extends Omit<Settings, 'dots' | 'dotsClass'> {
+export interface CarouselProps
+  extends Omit<Settings, 'dots' | 'dotsClass' | 'autoplay' | 'verticalSwiping'> {
   effect?: CarouselEffect;
   style?: React.CSSProperties;
   prefixCls?: string;
+  rootClassName?: string;
+  id?: string;
   slickGoTo?: number;
-  dotPosition?: DotPosition;
+  /** @deprecated Please use `dotPlacement` instead  */
+  dotPosition?: DotPlacement | 'left' | 'right';
+  dotPlacement?: DotPlacement;
   children?: React.ReactNode;
-  dots?:
-    | boolean
-    | {
-        className?: string;
-      };
+  dots?: boolean | { className?: string };
+  waitForAnimate?: boolean;
+  autoplay?: boolean | { dotDuration?: boolean };
 }
-
 export interface CarouselRef {
+  nativeElement: HTMLDivElement;
   goTo: (slide: number, dontAnimate?: boolean) => void;
   next: () => void;
   prev: () => void;
-  autoPlay: boolean;
+  autoPlay: (playType?: 'update' | 'leave' | 'blur') => void;
   innerSlider: any;
 }
 
-const Carousel = React.forwardRef<CarouselRef, CarouselProps>(
-  ({ dots = true, arrows = false, draggable = false, dotPosition = 'bottom', ...props }, ref) => {
-    const { getPrefixCls, direction } = React.useContext(ConfigContext);
-    const slickRef = React.useRef<any>();
+const dotsClass = 'slick-dots';
 
-    const goTo = (slide: number, dontAnimate = false) => {
-      slickRef.current.slickGoTo(slide, dontAnimate);
-    };
+interface ArrowType extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  currentSlide?: number;
+  slideCount?: number;
+}
 
-    React.useImperativeHandle(
-      ref,
-      () => ({
-        goTo,
-        autoPlay: slickRef.current.innerSlider.autoPlay,
-        innerSlider: slickRef.current.innerSlider,
-        prev: slickRef.current.slickPrev,
-        next: slickRef.current.slickNext,
-      }),
-      [slickRef.current],
-    );
-
-    const prevCount = React.useRef(React.Children.count(props.children));
-
-    React.useEffect(() => {
-      if (prevCount.current !== React.Children.count(props.children)) {
-        goTo(props.initialSlide || 0, false);
-        prevCount.current = React.Children.count(props.children);
-      }
-    }, [props.children]);
-
-    const newProps = {
-      ...props,
-    };
-
-    if (newProps.effect === 'fade') {
-      newProps.fade = true;
-    }
-
-    const prefixCls = getPrefixCls('carousel', newProps.prefixCls);
-    const dotsClass = 'slick-dots';
-    newProps.vertical = dotPosition === 'left' || dotPosition === 'right';
-
-    const enableDots = !!dots;
-    const dsClass = classNames(
-      dotsClass,
-      `${dotsClass}-${dotPosition}`,
-      typeof dots === 'boolean' ? false : dots?.className,
-    );
-
-    const className = classNames(prefixCls, {
-      [`${prefixCls}-rtl`]: direction === 'rtl',
-      [`${prefixCls}-vertical`]: newProps.vertical,
-    });
-
-    return (
-      <div className={className}>
-        <SlickCarousel
-          ref={slickRef}
-          {...newProps}
-          dots={enableDots}
-          dotsClass={dsClass}
-          arrows={arrows}
-          draggable={draggable}
-        />
-      </div>
-    );
-  },
+const ArrowButton: React.FC<ArrowType> = ({ currentSlide, slideCount, ...rest }) => (
+  <button type="button" {...rest} />
 );
+
+const Carousel = React.forwardRef<CarouselRef, CarouselProps>((props, ref) => {
+  const {
+    dots = true,
+    arrows = false,
+    prevArrow,
+    nextArrow,
+    draggable = false,
+    waitForAnimate = false,
+    dotPosition,
+    dotPlacement,
+    vertical,
+    rootClassName,
+    className: customClassName,
+    style,
+    id,
+    autoplay = false,
+    autoplaySpeed = 3000,
+    rtl,
+    ...otherProps
+  } = props;
+
+  const mergedDotPlacement = React.useMemo(() => {
+    const placement: DotPlacement | 'left' | 'right' = dotPlacement ?? dotPosition ?? 'bottom';
+    switch (placement) {
+      case 'left':
+        return 'start';
+      case 'right':
+        return 'end';
+      default:
+        return placement;
+    }
+  }, [dotPosition, dotPlacement]);
+
+  const mergedVertical =
+    vertical ?? (mergedDotPlacement === 'start' || mergedDotPlacement === 'end');
+
+  const {
+    getPrefixCls,
+    direction,
+    className: contextClassName,
+    style: contextStyle,
+  } = useComponentConfig('carousel');
+  const [contextLocale] = useLocale('Carousel', defaultLocale.Carousel);
+  const slickRef = React.useRef<any>(null);
+  const nativeElementRef = React.useRef<HTMLDivElement>(null);
+
+  const goTo = (slide: number, dontAnimate = false) => {
+    slickRef.current.slickGoTo(slide, dontAnimate);
+  };
+
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      goTo,
+      autoPlay: slickRef.current.innerSlider.autoPlay,
+      innerSlider: slickRef.current.innerSlider,
+      prev: slickRef.current.slickPrev,
+      next: slickRef.current.slickNext,
+      nativeElement: nativeElementRef.current!,
+    }),
+    [slickRef.current],
+  );
+  const { children, initialSlide = 0 } = props;
+  const childNodes: React.ReactNode[] = toArray(children);
+  const count = childNodes.length;
+  const isRTL = (rtl ?? direction === 'rtl') && !vertical;
+
+  React.useEffect(() => {
+    if (count > 0) {
+      const newIndex = isRTL ? count - initialSlide - 1 : initialSlide;
+      goTo(newIndex, false);
+    }
+  }, [initialSlide, isRTL]);
+
+  // ========================== Warn ==========================
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Carousel');
+
+    warning.deprecated(!dotPosition, 'dotPosition', 'dotPlacement');
+  }
+
+  const newProps = {
+    vertical: mergedVertical,
+    className: clsx(customClassName, contextClassName),
+    style: { ...contextStyle, ...style },
+    autoplay: !!autoplay,
+    ...otherProps,
+  };
+
+  if (newProps.effect === 'fade') {
+    newProps.fade = true;
+  }
+
+  const prefixCls = getPrefixCls('carousel', newProps.prefixCls);
+
+  const enableDots = !!dots;
+  const dsClass = clsx(
+    dotsClass,
+    `${dotsClass}-${mergedDotPlacement}`,
+    typeof dots === 'boolean' ? false : dots?.className,
+  );
+
+  const [hashId, cssVarCls] = useStyle(prefixCls);
+
+  const className = clsx(
+    prefixCls,
+    {
+      [`${prefixCls}-rtl`]: isRTL,
+      [`${prefixCls}-vertical`]: newProps.vertical,
+    },
+    hashId,
+    cssVarCls,
+    rootClassName,
+  );
+
+  const mergedShowDuration = autoplay && (isPlainObject(autoplay) ? autoplay.dotDuration : false);
+
+  const dotDurationStyle: React.CSSProperties = mergedShowDuration
+    ? { [DotDuration]: `${autoplaySpeed}ms` }
+    : {};
+
+  return (
+    <div ref={nativeElementRef} className={className} id={id} style={dotDurationStyle}>
+      <SlickCarousel
+        ref={slickRef}
+        {...newProps}
+        dots={enableDots}
+        dotsClass={dsClass}
+        arrows={arrows}
+        prevArrow={prevArrow ?? <ArrowButton aria-label={isRTL ? contextLocale.nextSlide : contextLocale.prevSlide} />}
+        nextArrow={nextArrow ?? <ArrowButton aria-label={isRTL ? contextLocale.prevSlide : contextLocale.nextSlide} />}
+        draggable={draggable}
+        verticalSwiping={mergedVertical}
+        autoplaySpeed={autoplaySpeed}
+        waitForAnimate={waitForAnimate}
+        rtl={isRTL}
+      />
+    </div>
+  );
+});
+
+if (process.env.NODE_ENV !== 'production') {
+  Carousel.displayName = 'Carousel';
+}
 
 export default Carousel;

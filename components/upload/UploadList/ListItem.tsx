@@ -1,55 +1,66 @@
 import * as React from 'react';
-import CSSMotion from 'rc-motion';
-import classNames from 'classnames';
-import EyeOutlined from '@ant-design/icons/EyeOutlined';
 import DeleteOutlined from '@ant-design/icons/DeleteOutlined';
 import DownloadOutlined from '@ant-design/icons/DownloadOutlined';
-import Tooltip from '../../tooltip';
-import Progress from '../../progress';
-import { ConfigContext } from '../../config-provider';
+import EyeOutlined from '@ant-design/icons/EyeOutlined';
+import CSSMotion from '@rc-component/motion';
+import { useDelayState } from '@rc-component/util';
+import { clsx } from 'clsx';
 
-import {
+import { isFunction } from '../../_util/is';
+import { ConfigContext } from '../../config-provider';
+import Progress from '../../progress';
+import Tooltip from '../../tooltip';
+import type {
   ItemRender,
   UploadFile,
   UploadListProgressProps,
   UploadListType,
   UploadLocale,
+  UploadSemanticAllType,
 } from '../interface';
 
 export interface ListItemProps {
   prefixCls: string;
   className?: string;
   style?: React.CSSProperties;
+  classNames?: UploadSemanticAllType['classNames'];
+  styles?: UploadSemanticAllType['styles'];
   locale: UploadLocale;
   file: UploadFile;
   items: UploadFile[];
   listType?: UploadListType;
   isImgUrl?: (file: UploadFile) => boolean;
-  showRemoveIcon?: boolean;
-  showDownloadIcon?: boolean;
-  showPreviewIcon?: boolean;
+  showRemoveIcon?: boolean | ((file: UploadFile) => boolean);
+  showDownloadIcon?: boolean | ((file: UploadFile) => boolean);
+  showPreviewIcon?: boolean | ((file: UploadFile) => boolean);
   removeIcon?: React.ReactNode | ((file: UploadFile) => React.ReactNode);
   downloadIcon?: React.ReactNode | ((file: UploadFile) => React.ReactNode);
+  previewIcon?: React.ReactNode | ((file: UploadFile) => React.ReactNode);
+  extra?: React.ReactNode | ((file: UploadFile) => React.ReactNode);
   iconRender: (file: UploadFile) => React.ReactNode;
   actionIconRender: (
     customIcon: React.ReactNode,
     callback: () => void,
     prefixCls: string,
-    title?: string | undefined,
+    title?: string,
+    acceptUploadDisabled?: boolean,
   ) => React.ReactNode;
   itemRender?: ItemRender;
   onPreview: (file: UploadFile, e: React.SyntheticEvent<HTMLElement>) => void;
+  hasPreview?: boolean;
   onClose: (file: UploadFile) => void;
   onDownload: (file: UploadFile) => void;
   progress?: UploadListProgressProps;
 }
 
-const ListItem = React.forwardRef(
+const ListItem = React.forwardRef<HTMLDivElement, ListItemProps>(
   (
     {
       prefixCls,
       className,
       style,
+      classNames: itemClassNames,
+      styles,
       locale,
       listType,
       file,
@@ -62,38 +73,38 @@ const ListItem = React.forwardRef(
       showPreviewIcon,
       showRemoveIcon,
       showDownloadIcon,
+      previewIcon: customPreviewIcon,
       removeIcon: customRemoveIcon,
       downloadIcon: customDownloadIcon,
+      extra: customExtra,
       onPreview,
+      hasPreview,
       onDownload,
       onClose,
-    }: ListItemProps,
-    ref: React.Ref<HTMLDivElement>,
+    },
+    ref,
   ) => {
-    // Delay to show the progress bar
-    const [showProgress, setShowProgress] = React.useState(false);
-    const progressRafRef = React.useRef<any>();
+    // Status: which will ignore `removed` status
+    const { status } = file;
+    const [mergedStatus, setMergedStatus] = React.useState(status);
     React.useEffect(() => {
-      progressRafRef.current = setTimeout(() => {
-        setShowProgress(true);
-      }, 300);
+      if (status !== 'removed') {
+        setMergedStatus(status);
+      }
+    }, [status]);
 
-      return () => {
-        window.clearTimeout(progressRafRef.current);
-      };
+    // Delay to show the progress bar
+    const [showProgress, setShowProgress] = useDelayState(false);
+    React.useEffect(() => {
+      setShowProgress(true, { ms: 300 });
     }, []);
 
-    // This is used for legacy span make scrollHeight the wrong value.
-    // We will force these to be `display: block` with non `picture-card`
-    const spanClassName = `${prefixCls}-span`;
-
     const iconNode = iconRender(file);
-    let icon = <div className={`${prefixCls}-text-icon`}>{iconNode}</div>;
-    if (listType === 'picture' || listType === 'picture-card') {
-      if (file.status === 'uploading' || (!file.thumbUrl && !file.url)) {
-        const uploadingClassName = classNames({
-          [`${prefixCls}-list-item-thumbnail`]: true,
-          [`${prefixCls}-list-item-file`]: file.status !== 'uploading',
+    let icon = <div className={`${prefixCls}-icon`}>{iconNode}</div>;
+    if (listType === 'picture' || listType === 'picture-card' || listType === 'picture-circle') {
+      if (mergedStatus === 'uploading' || (!file.thumbUrl && !file.url)) {
+        const uploadingClassName = clsx(`${prefixCls}-list-item-thumbnail`, {
+          [`${prefixCls}-list-item-file`]: mergedStatus !== 'uploading',
         });
         icon = <div className={uploadingClassName}>{iconNode}</div>;
       } else {
@@ -102,18 +113,18 @@ const ListItem = React.forwardRef(
             src={file.thumbUrl || file.url}
             alt={file.name}
             className={`${prefixCls}-list-item-image`}
+            crossOrigin={file.crossOrigin}
           />
         ) : (
           iconNode
         );
-        const aClassName = classNames({
-          [`${prefixCls}-list-item-thumbnail`]: true,
+        const aClassName = clsx(`${prefixCls}-list-item-thumbnail`, {
           [`${prefixCls}-list-item-file`]: isImgUrl && !isImgUrl(file),
         });
         icon = (
           <a
             className={aClassName}
-            onClick={e => onPreview(file, e)}
+            onClick={(e) => onPreview(file, e)}
             href={file.url || file.thumbUrl}
             target="_blank"
             rel="noopener noreferrer"
@@ -124,134 +135,147 @@ const ListItem = React.forwardRef(
       }
     }
 
-    const infoUploadingClass = classNames({
-      [`${prefixCls}-list-item`]: true,
-      [`${prefixCls}-list-item-${file.status}`]: true,
-      [`${prefixCls}-list-item-list-type-${listType}`]: true,
-    });
+    const listItemClassName = clsx(
+      `${prefixCls}-list-item`,
+      `${prefixCls}-list-item-${mergedStatus}`,
+      itemClassNames?.item,
+    );
     const linkProps =
       typeof file.linkProps === 'string' ? JSON.parse(file.linkProps) : file.linkProps;
 
-    const removeIcon = showRemoveIcon
+    const removeIcon = (isFunction(showRemoveIcon) ? showRemoveIcon(file) : showRemoveIcon)
       ? actionIconRender(
-          (typeof customRemoveIcon === 'function' ? customRemoveIcon(file) : customRemoveIcon) || (
+          (isFunction(customRemoveIcon) ? customRemoveIcon(file) : customRemoveIcon) || (
             <DeleteOutlined />
           ),
           () => onClose(file),
           prefixCls,
           locale.removeFile,
+          // acceptUploadDisabled is true, only remove icon will follow Upload disabled prop
+          // https://github.com/ant-design/ant-design/issues/46171
+          true,
         )
       : null;
 
     const downloadIcon =
-      showDownloadIcon && file.status === 'done'
+      (isFunction(showDownloadIcon) ? showDownloadIcon(file) : showDownloadIcon) &&
+      mergedStatus === 'done'
         ? actionIconRender(
-            (typeof customDownloadIcon === 'function'
-              ? customDownloadIcon(file)
-              : customDownloadIcon) || <DownloadOutlined />,
+            (isFunction(customDownloadIcon) ? customDownloadIcon(file) : customDownloadIcon) || (
+              <DownloadOutlined />
+            ),
             () => onDownload(file),
             prefixCls,
             locale.downloadFile,
           )
         : null;
-    const downloadOrDelete = listType !== 'picture-card' && (
+    const downloadOrDelete = listType !== 'picture-card' && listType !== 'picture-circle' && (
       <span
         key="download-delete"
-        className={classNames(`${prefixCls}-list-item-card-actions`, {
-          picture: listType === 'picture',
-        })}
+        className={clsx(`${prefixCls}-list-item-actions`, { picture: listType === 'picture' })}
       >
         {downloadIcon}
         {removeIcon}
       </span>
     );
-    const listItemNameClass = classNames(`${prefixCls}-list-item-name`);
-    const preview = file.url
-      ? [
-          <a
-            key="view"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={listItemNameClass}
-            title={file.name}
-            {...linkProps}
-            href={file.url}
-            onClick={e => onPreview(file, e)}
-          >
-            {file.name}
-          </a>,
-          downloadOrDelete,
-        ]
-      : [
-          <span
-            key="view"
-            className={listItemNameClass}
-            onClick={e => onPreview(file, e)}
-            title={file.name}
-          >
-            {file.name}
-          </span>,
-          downloadOrDelete,
-        ];
-    const previewStyle: React.CSSProperties = {
-      pointerEvents: 'none',
-      opacity: 0.5,
+
+    const extraContent = isFunction(customExtra) ? customExtra(file) : customExtra;
+    const extra = extraContent && (
+      <span className={`${prefixCls}-list-item-extra`}>{extraContent}</span>
+    );
+
+    const listItemNameClass = clsx(`${prefixCls}-list-item-name`);
+    const onPreviewKeyDown: React.KeyboardEventHandler<HTMLSpanElement> = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onPreview(file, e);
+      }
     };
-    const previewIcon = showPreviewIcon ? (
+    const spanProps: React.HTMLAttributes<HTMLSpanElement> = hasPreview
+      ? {
+          role: 'button',
+          tabIndex: 0,
+          onClick: (e) => onPreview(file, e),
+          onKeyDown: onPreviewKeyDown,
+        }
+      : {};
+    const fileName = file.url ? (
       <a
-        href={file.url || file.thumbUrl}
+        key="view"
         target="_blank"
         rel="noopener noreferrer"
-        style={file.url || file.thumbUrl ? undefined : previewStyle}
-        onClick={e => onPreview(file, e)}
-        title={locale.previewFile}
+        className={listItemNameClass}
+        title={file.name}
+        {...linkProps}
+        href={file.url}
+        onClick={(e) => onPreview(file, e)}
       >
-        <EyeOutlined />
+        {file.name}
+        {extra}
       </a>
-    ) : null;
-
-    const actions = listType === 'picture-card' && file.status !== 'uploading' && (
-      <span className={`${prefixCls}-list-item-actions`}>
-        {previewIcon}
-        {file.status === 'done' && downloadIcon}
-        {removeIcon}
+    ) : (
+      <span key="view" className={listItemNameClass} {...spanProps} title={file.name}>
+        {file.name}
+        {extra}
       </span>
     );
 
-    let message;
-    if (file.response && typeof file.response === 'string') {
-      message = file.response;
-    } else {
-      message = file.error?.statusText || file.error?.message || locale.uploadError;
-    }
-    const iconAndPreview = (
-      <span className={spanClassName}>
-        {icon}
-        {preview}
-      </span>
-    );
+    const previewIcon =
+      (isFunction(showPreviewIcon) ? showPreviewIcon(file) : showPreviewIcon) &&
+      (file.url || file.thumbUrl) ? (
+        <a
+          href={file.url || file.thumbUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => onPreview(file, e)}
+          title={locale.previewFile}
+          aria-label={locale.previewFile || undefined}
+        >
+          {isFunction(customPreviewIcon)
+            ? customPreviewIcon(file)
+            : customPreviewIcon || <EyeOutlined />}
+        </a>
+      ) : null;
+
+    const pictureCardActions = (listType === 'picture-card' || listType === 'picture-circle') &&
+      mergedStatus !== 'uploading' && (
+        <span className={`${prefixCls}-list-item-actions`}>
+          {previewIcon}
+          {mergedStatus === 'done' && downloadIcon}
+          {removeIcon}
+        </span>
+      );
+
     const { getPrefixCls } = React.useContext(ConfigContext);
     const rootPrefixCls = getPrefixCls();
 
     const dom = (
-      <div className={infoUploadingClass}>
-        <div className={`${prefixCls}-list-item-info`}>{iconAndPreview}</div>
-        {actions}
+      <div className={listItemClassName} style={styles?.item}>
+        {icon}
+        {fileName}
+        {downloadOrDelete}
+        {pictureCardActions}
         {showProgress && (
           <CSSMotion
             motionName={`${rootPrefixCls}-fade`}
-            visible={file.status === 'uploading'}
+            visible={mergedStatus === 'uploading'}
             motionDeadline={2000}
           >
             {({ className: motionClassName }) => {
               // show loading icon if upload progress listener is disabled
               const loadingProgress =
                 'percent' in file ? (
-                  <Progress {...progressProps} type="line" percent={file.percent} />
+                  <Progress
+                    type="line"
+                    percent={file.percent}
+                    aria-label={file['aria-label']}
+                    aria-labelledby={file['aria-labelledby']}
+                    {...progressProps}
+                  />
                 ) : null;
 
               return (
-                <div className={classNames(`${prefixCls}-list-item-progress`, motionClassName)}>
+                <div className={clsx(`${prefixCls}-list-item-progress`, motionClassName)}>
                   {loadingProgress}
                 </div>
               );
@@ -260,10 +284,14 @@ const ListItem = React.forwardRef(
         )}
       </div>
     );
-    const listContainerNameClass = classNames(`${prefixCls}-list-${listType}-container`, className);
+
+    const message =
+      file.response && typeof file.response === 'string'
+        ? file.response
+        : file.error?.statusText || file.error?.message || locale.uploadError;
     const item =
-      file.status === 'error' ? (
-        <Tooltip title={message} getPopupContainer={node => node.parentNode as HTMLElement}>
+      mergedStatus === 'error' ? (
+        <Tooltip title={message} getPopupContainer={(node) => node.parentNode as HTMLElement}>
           {dom}
         </Tooltip>
       ) : (
@@ -271,11 +299,11 @@ const ListItem = React.forwardRef(
       );
 
     return (
-      <div className={listContainerNameClass} style={style} ref={ref}>
+      <div className={clsx(`${prefixCls}-list-item-container`, className)} style={style} ref={ref}>
         {itemRender
           ? itemRender(item, file, items, {
               download: onDownload.bind(null, file),
-              preview: onPreview.bind(null, file),
+              preview: onPreview.bind(null, file) as any,
               remove: onClose.bind(null, file),
             })
           : item}

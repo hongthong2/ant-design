@@ -1,23 +1,39 @@
 import * as React from 'react';
-import classNames from 'classnames';
-import RcCheckbox from 'rc-checkbox';
-import { GroupContext } from './Group';
-import { ConfigContext } from '../config-provider';
-import devWarning from '../_util/devWarning';
+import type { CheckboxRef } from '@rc-component/checkbox';
+import RcCheckbox from '@rc-component/checkbox';
+import { isReactRenderable, useComposeRef, useControlledState, useEvent } from '@rc-component/util';
+import { clsx } from 'clsx';
+
+import { useMergeSemantic, useSemanticRootStyle } from '../_util/hooks/useMergeSemantic';
+import type { GenerateSemantic } from '../_util/hooks/useMergeSemantic/semanticType';
+import { devUseWarning } from '../_util/warning';
+import Wave from '../_util/wave';
+import { TARGET_CLS } from '../_util/wave/interface';
+import { useComponentConfig } from '../config-provider/context';
+import DisabledContext from '../config-provider/DisabledContext';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
+import { FormItemInputContext } from '../form/context';
+import GroupContext from './GroupContext';
+import useStyle from './style';
+import useBubbleLock from './useBubbleLock';
 
 export interface AbstractCheckboxProps<T> {
   prefixCls?: string;
   className?: string;
+  rootClassName?: string;
   defaultChecked?: boolean;
   checked?: boolean;
   style?: React.CSSProperties;
   disabled?: boolean;
+  title?: string;
   onChange?: (e: T) => void;
   onClick?: React.MouseEventHandler<HTMLElement>;
   onMouseEnter?: React.MouseEventHandler<HTMLElement>;
   onMouseLeave?: React.MouseEventHandler<HTMLElement>;
   onKeyPress?: React.KeyboardEventHandler<HTMLElement>;
   onKeyDown?: React.KeyboardEventHandler<HTMLElement>;
+  onFocus?: React.FocusEventHandler<HTMLInputElement>;
+  onBlur?: React.FocusEventHandler<HTMLInputElement>;
   value?: any;
   tabIndex?: number;
   name?: string;
@@ -26,6 +42,7 @@ export interface AbstractCheckboxProps<T> {
   autoFocus?: boolean;
   type?: string;
   skipGroup?: boolean;
+  required?: boolean;
 }
 
 export interface CheckboxChangeEventTarget extends CheckboxProps {
@@ -38,93 +55,216 @@ export interface CheckboxChangeEvent {
   preventDefault: () => void;
   nativeEvent: MouseEvent;
 }
+export type CheckboxSemanticType = {
+  classNames?: {
+    root?: string;
+    icon?: string;
+    label?: string;
+  };
+  styles?: {
+    root?: React.CSSProperties;
+    icon?: React.CSSProperties;
+    label?: React.CSSProperties;
+  };
+};
+
+export type CheckboxSemanticAllType = GenerateSemantic<CheckboxSemanticType, CheckboxProps>;
 
 export interface CheckboxProps extends AbstractCheckboxProps<CheckboxChangeEvent> {
   indeterminate?: boolean;
+  classNames?: CheckboxSemanticAllType['classNamesAndFn'];
+  styles?: CheckboxSemanticAllType['stylesAndFn'];
 }
 
-const InternalCheckbox: React.ForwardRefRenderFunction<HTMLInputElement, CheckboxProps> = (
-  {
+const InternalCheckbox: React.ForwardRefRenderFunction<CheckboxRef, CheckboxProps> = (
+  props,
+  ref,
+) => {
+  const {
     prefixCls: customizePrefixCls,
-    className,
+
     children,
     indeterminate = false,
-    style,
+
     onMouseEnter,
     onMouseLeave,
     skipGroup = false,
+    disabled,
+
+    // Style
+    rootClassName,
+    className,
+    style,
+    classNames,
+    styles,
+
+    // Name
+    name,
+
+    // Value
+    value,
+
+    // Checked
+    checked,
+    defaultChecked,
+    onChange,
+
     ...restProps
-  },
-  ref,
-) => {
-  const { getPrefixCls, direction } = React.useContext(ConfigContext);
+  } = props;
+  const {
+    getPrefixCls,
+    direction,
+    className: contextClassName,
+    style: contextStyle,
+    classNames: contextClassNames,
+    styles: contextStyles,
+  } = useComponentConfig('checkbox');
   const checkboxGroup = React.useContext(GroupContext);
+  const { isFormItemInput } = React.useContext(FormItemInputContext);
+  const contextDisabled = React.useContext(DisabledContext);
+  const mergedDisabled = disabled ?? checkboxGroup?.disabled ?? contextDisabled;
 
-  const prevValue = React.useRef(restProps.value);
+  // ============================= Warning ==============================
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Checkbox');
 
-  React.useEffect(() => {
-    checkboxGroup?.registerValue(restProps.value);
-    devWarning(
-      'checked' in restProps || !!checkboxGroup || !('value' in restProps),
-      'Checkbox',
+    warning(
+      'checked' in props || !!checkboxGroup || !('value' in props),
+      'usage',
       '`value` is not a valid prop, do you mean `checked`?',
     );
-  }, []);
+  }
+
+  // ============================= Checked ==============================
+  const [innerChecked, setInnerChecked] = useControlledState(defaultChecked, checked);
+  let mergedChecked = innerChecked;
+
+  const onInternalChange = useEvent((event) => {
+    setInnerChecked(event.target.checked);
+    onChange?.(event);
+
+    if (!skipGroup && checkboxGroup?.toggleOption) {
+      checkboxGroup.toggleOption({ label: children, value });
+    }
+  });
+
+  // ============================== Group ===============================
+  if (checkboxGroup && !skipGroup) {
+    mergedChecked = checkboxGroup.value.includes(value);
+  }
+
+  const checkboxRef = React.useRef<CheckboxRef>(null);
+  const mergedRef = useComposeRef(ref, checkboxRef);
 
   React.useEffect(() => {
-    if (skipGroup) {
+    if (skipGroup || !checkboxGroup) {
       return;
     }
-    if (restProps.value !== prevValue.current) {
-      checkboxGroup?.cancelValue(prevValue.current);
-      checkboxGroup?.registerValue(restProps.value);
-    }
-    return () => checkboxGroup?.cancelValue(restProps.value);
-  }, [restProps.value]);
-
-  const prefixCls = getPrefixCls('checkbox', customizePrefixCls);
-  const checkboxProps: CheckboxProps = { ...restProps };
-  if (checkboxGroup && !skipGroup) {
-    checkboxProps.onChange = (...args) => {
-      if (restProps.onChange) {
-        restProps.onChange(...args);
-      }
-      if (checkboxGroup.toggleOption) {
-        checkboxGroup.toggleOption({ label: children, value: restProps.value });
-      }
+    checkboxGroup.registerValue(value);
+    return () => {
+      checkboxGroup.cancelValue(value);
     };
-    checkboxProps.name = checkboxGroup.name;
-    checkboxProps.checked = checkboxGroup.value.indexOf(restProps.value) !== -1;
-    checkboxProps.disabled = restProps.disabled || checkboxGroup.disabled;
-  }
-  const classString = classNames(
-    {
-      [`${prefixCls}-wrapper`]: true,
-      [`${prefixCls}-rtl`]: direction === 'rtl',
-      [`${prefixCls}-wrapper-checked`]: checkboxProps.checked,
-      [`${prefixCls}-wrapper-disabled`]: checkboxProps.disabled,
-    },
-    className,
-  );
-  const checkboxClass = classNames({
-    [`${prefixCls}-indeterminate`]: indeterminate,
+  }, [value, skipGroup]);
+
+  // ========================== Indeterminate ===========================
+  React.useEffect(() => {
+    if (checkboxRef.current?.input) {
+      checkboxRef.current.input.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+
+  // ============================== Style ===============================
+  const prefixCls = getPrefixCls('checkbox', customizePrefixCls);
+  const rootCls = useCSSVarCls(prefixCls);
+  const [hashId, cssVarCls] = useStyle(prefixCls, rootCls);
+
+  const checkboxProps: CheckboxProps = { ...restProps };
+
+  // =========== Merged Props for Semantic ==========
+  const mergedProps: CheckboxProps = {
+    ...props,
+    indeterminate,
+    disabled: mergedDisabled,
+    checked: mergedChecked,
+  };
+
+  const contextStyleRoot = useSemanticRootStyle(contextStyle);
+  const styleRoot = useSemanticRootStyle(style);
+
+  const [mergedClassNames, mergedStyles] = useMergeSemantic<
+    CheckboxSemanticAllType['classNames'],
+    CheckboxSemanticAllType['styles'],
+    CheckboxProps
+  >([contextClassNames, classNames], [contextStyles, contextStyleRoot, styles, styleRoot], {
+    props: mergedProps,
   });
+
+  const classString = clsx(
+    `${prefixCls}-wrapper`,
+    {
+      [`${prefixCls}-rtl`]: direction === 'rtl',
+      [`${prefixCls}-wrapper-checked`]: mergedChecked,
+      [`${prefixCls}-wrapper-disabled`]: mergedDisabled,
+      [`${prefixCls}-wrapper-in-form-item`]: isFormItemInput,
+    },
+    contextClassName,
+    className,
+    mergedClassNames.root,
+    rootClassName,
+    cssVarCls,
+    rootCls,
+    hashId,
+  );
+  const checkboxClass = clsx(
+    mergedClassNames.icon,
+    { [`${prefixCls}-indeterminate`]: indeterminate },
+    TARGET_CLS,
+    hashId,
+  );
+
+  // ============================ Event Lock ============================
+  const [onLabelClick, onInputClick] = useBubbleLock(checkboxProps.onClick);
+
+  // ============================== Render ==============================
   return (
-    // eslint-disable-next-line jsx-a11y/label-has-associated-control
-    <label
-      className={classString}
-      style={style}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      <RcCheckbox {...checkboxProps} prefixCls={prefixCls} className={checkboxClass} ref={ref} />
-      {children !== undefined && <span>{children}</span>}
-    </label>
+    <Wave component="Checkbox" disabled={mergedDisabled}>
+      <label
+        className={classString}
+        style={mergedStyles.root}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        onClick={onLabelClick}
+      >
+        <RcCheckbox
+          {...checkboxProps}
+          name={!skipGroup && checkboxGroup ? checkboxGroup.name : name}
+          checked={mergedChecked}
+          onClick={onInputClick}
+          onChange={onInternalChange}
+          prefixCls={prefixCls}
+          className={checkboxClass}
+          style={mergedStyles.icon}
+          disabled={mergedDisabled}
+          ref={mergedRef}
+          value={value}
+        />
+        {isReactRenderable(children) && (
+          <span
+            className={clsx(`${prefixCls}-label`, mergedClassNames.label)}
+            style={mergedStyles.label}
+          >
+            {children}
+          </span>
+        )}
+      </label>
+    </Wave>
   );
 };
 
-const Checkbox = React.forwardRef<unknown, CheckboxProps>(InternalCheckbox);
+const Checkbox = React.forwardRef<CheckboxRef, CheckboxProps>(InternalCheckbox);
 
-Checkbox.displayName = 'Checkbox';
+if (process.env.NODE_ENV !== 'production') {
+  Checkbox.displayName = 'Checkbox';
+}
 
 export default Checkbox;

@@ -1,21 +1,42 @@
 import * as React from 'react';
-import classNames from 'classnames';
-import Spin, { SpinProps } from '../spin';
-import useBreakpoint from '../grid/hooks/useBreakpoint';
-import { Breakpoint, responsiveArray } from '../_util/responsiveObserve';
-import { RenderEmptyHandler, ConfigContext } from '../config-provider';
-import Pagination, { PaginationConfig } from '../pagination';
-import { Row } from '../grid';
-import Item from './Item';
+import { mergeProps } from '@rc-component/util';
+import { clsx } from 'clsx';
 
-export { ListItemProps, ListItemMetaProps } from './Item';
+import { isFunction, isPlainObject } from '../_util/is';
+import { responsiveArray } from '../_util/responsiveObserver';
+import type { Breakpoint } from '../_util/responsiveObserver';
+import { devUseWarning } from '../_util/warning';
+import { ConfigContext } from '../config-provider';
+import { useComponentConfig } from '../config-provider/context';
+import DefaultRenderEmpty from '../config-provider/defaultRenderEmpty';
+import useSize from '../config-provider/hooks/useSize';
+import { Row } from '../grid';
+import type { RowProps } from '../grid';
+import useBreakpoint from '../grid/hooks/useBreakpoint';
+import type { PaginationConfig } from '../pagination';
+import Pagination from '../pagination';
+import type { SpinProps } from '../spin';
+import Spin from '../spin';
+import { ListContext } from './context';
+import Item from './Item';
+import useStyle from './style';
+
+export type { ListConsumerProps } from './context';
+export type {
+  ListItemMetaProps,
+  ListItemMetaRef,
+  ListItemProps,
+  ListItemSemanticClassNames,
+  ListItemSemanticName,
+  ListItemSemanticStyles,
+} from './Item';
 
 export type ColumnCount = number;
 
-export type ColumnType = 'gutter' | 'column' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
+export type ColumnType = 'gutter' | 'column' | Breakpoint;
 
 export interface ListGridType {
-  gutter?: number;
+  gutter?: RowProps['gutter'];
   column?: ColumnCount;
   xs?: ColumnCount;
   sm?: ColumnCount;
@@ -23,6 +44,7 @@ export interface ListGridType {
   lg?: ColumnCount;
   xl?: ColumnCount;
   xxl?: ColumnCount;
+  xxxl?: ColumnCount;
 }
 
 export type ListSize = 'small' | 'default' | 'large';
@@ -32,6 +54,7 @@ export type ListItemLayout = 'horizontal' | 'vertical';
 export interface ListProps<T> {
   bordered?: boolean;
   className?: string;
+  rootClassName?: string;
   style?: React.CSSProperties;
   children?: React.ReactNode;
   dataSource?: T[];
@@ -53,72 +76,76 @@ export interface ListProps<T> {
 }
 
 export interface ListLocale {
-  emptyText: React.ReactNode | (() => React.ReactNode);
+  emptyText: React.ReactNode;
 }
 
-export interface ListConsumerProps {
-  grid?: any;
-  itemLayout?: string;
-}
+const InternalList = <T,>(props: ListProps<T>, ref: React.ForwardedRef<HTMLDivElement>) => {
+  const {
+    pagination = false,
+    prefixCls: customizePrefixCls,
+    bordered = false,
+    split = true,
+    className,
+    rootClassName,
+    style,
+    children,
+    itemLayout,
+    loadMore,
+    grid,
+    dataSource = [],
+    size: customizeSize,
+    header,
+    footer,
+    loading = false,
+    rowKey,
+    renderItem,
+    locale,
+    ...rest
+  } = props;
 
-export const ListContext = React.createContext<ListConsumerProps>({});
-
-export const ListConsumer = ListContext.Consumer;
-
-function List<T>({
-  pagination = false as ListProps<any>['pagination'],
-  prefixCls: customizePrefixCls,
-  bordered = false,
-  split = true,
-  className,
-  children,
-  itemLayout,
-  loadMore,
-  grid,
-  dataSource = [],
-  size,
-  header,
-  footer,
-  loading = false,
-  rowKey,
-  renderItem,
-  locale,
-  ...rest
-}: ListProps<T>) {
-  const paginationObj = pagination && typeof pagination === 'object' ? pagination : {};
+  const paginationObj = isPlainObject(pagination) ? pagination : {};
 
   const [paginationCurrent, setPaginationCurrent] = React.useState(
     paginationObj.defaultCurrent || 1,
   );
+
   const [paginationSize, setPaginationSize] = React.useState(paginationObj.defaultPageSize || 10);
 
-  const { getPrefixCls, renderEmpty, direction } = React.useContext(ConfigContext);
+  const {
+    getPrefixCls,
+    direction,
+    className: contextClassName,
+    style: contextStyle,
+  } = useComponentConfig('list');
+  const { renderEmpty } = React.useContext(ConfigContext);
 
-  const defaultPaginationProps = {
+  const defaultPaginationProps: PaginationConfig = {
     current: 1,
     total: 0,
+    position: 'bottom',
   };
 
-  const listItemsKeys: { [index: number]: React.Key } = {};
-
-  const triggerPaginationEvent = (eventName: string) => (page: number, pageSize: number) => {
-    setPaginationCurrent(page);
-    setPaginationSize(pageSize);
-    if (pagination && (pagination as any)[eventName]) {
-      (pagination as any)[eventName](page, pageSize);
-    }
-  };
+  const triggerPaginationEvent =
+    (eventName: 'onChange' | 'onShowSizeChange') => (page: number, pageSize: number) => {
+      setPaginationCurrent(page);
+      setPaginationSize(pageSize);
+      if (pagination) {
+        pagination?.[eventName]?.(page, pageSize);
+      }
+    };
 
   const onPaginationChange = triggerPaginationEvent('onChange');
 
   const onPaginationShowSizeChange = triggerPaginationEvent('onShowSizeChange');
 
-  const renderInnerItem = (item: T, index: number) => {
-    if (!renderItem) return null;
+  const renderInternalItem = (item: T, index: number) => {
+    if (!renderItem) {
+      return null;
+    }
 
-    let key;
+    let key: any;
 
-    if (typeof rowKey === 'function') {
+    if (isFunction(rowKey)) {
       key = rowKey(item);
     } else if (rowKey) {
       key = item[rowKey];
@@ -126,36 +153,32 @@ function List<T>({
       key = (item as any).key;
     }
 
-    if (!key) {
-      key = `list-item-${index}`;
-    }
+    key ??= `list-item-${index}`;
 
-    listItemsKeys[index] = key;
-
-    return renderItem(item, index);
+    return <React.Fragment key={key}>{renderItem(item, index)}</React.Fragment>;
   };
 
-  const isSomethingAfterLastItem = () => !!(loadMore || pagination || footer);
-
-  const renderEmptyFunc = (prefixCls: string, renderEmptyHandler: RenderEmptyHandler) => (
-    <div className={`${prefixCls}-empty-text`}>
-      {(locale && locale.emptyText) || renderEmptyHandler('List')}
-    </div>
-  );
+  const isSomethingAfterLastItem = !!(loadMore || pagination || footer);
 
   const prefixCls = getPrefixCls('list', customizePrefixCls);
+
+  // Style
+  const [hashId, cssVarCls] = useStyle(prefixCls);
+
   let loadingProp = loading;
   if (typeof loadingProp === 'boolean') {
     loadingProp = {
       spinning: loadingProp,
     };
   }
-  const isLoading = loadingProp && loadingProp.spinning;
+  const isLoading = !!loadingProp?.spinning;
+
+  const mergedSize = useSize(customizeSize);
 
   // large => lg
   // small => sm
   let sizeCls = '';
-  switch (size) {
+  switch (mergedSize) {
     case 'large':
       sizeCls = 'lg';
       break;
@@ -166,7 +189,7 @@ function List<T>({
       break;
   }
 
-  const classString = classNames(
+  const classString = clsx(
     prefixCls,
     {
       [`${prefixCls}-vertical`]: itemLayout === 'vertical',
@@ -175,33 +198,42 @@ function List<T>({
       [`${prefixCls}-bordered`]: bordered,
       [`${prefixCls}-loading`]: isLoading,
       [`${prefixCls}-grid`]: !!grid,
-      [`${prefixCls}-something-after-last-item`]: isSomethingAfterLastItem(),
+      [`${prefixCls}-something-after-last-item`]: isSomethingAfterLastItem,
       [`${prefixCls}-rtl`]: direction === 'rtl',
     },
+    contextClassName,
     className,
+    rootClassName,
+    hashId,
+    cssVarCls,
   );
 
-  const paginationProps = {
-    ...defaultPaginationProps,
-    total: dataSource.length,
-    current: paginationCurrent,
-    pageSize: paginationSize,
-    ...(pagination || {}),
-  };
+  const containerCls = `${prefixCls}-container`;
+
+  const paginationProps = mergeProps(
+    defaultPaginationProps,
+    {
+      total: dataSource.length,
+      current: paginationCurrent,
+      pageSize: paginationSize,
+    },
+    pagination || {},
+  );
 
   const largestPage = Math.ceil(paginationProps.total / paginationProps.pageSize);
-  if (paginationProps.current > largestPage) {
-    paginationProps.current = largestPage;
-  }
-  const paginationContent = pagination ? (
-    <div className={`${prefixCls}-pagination`}>
+
+  paginationProps.current = Math.min(paginationProps.current, largestPage);
+
+  const paginationContent = pagination && (
+    <div className={clsx(`${prefixCls}-pagination`)}>
       <Pagination
+        align="end"
         {...paginationProps}
         onChange={onPaginationChange}
         onShowSizeChange={onPaginationShowSizeChange}
       />
     </div>
-  ) : null;
+  );
 
   let splitDataSource = [...dataSource];
   if (pagination) {
@@ -213,10 +245,13 @@ function List<T>({
     }
   }
 
-  const screens = useBreakpoint();
+  const needResponsive = Object.keys(grid || {}).some((key) =>
+    responsiveArray.includes(key as Breakpoint),
+  );
+  const screens = useBreakpoint(needResponsive);
   const currentBreakpoint = React.useMemo(() => {
     for (let i = 0; i < responsiveArray.length; i += 1) {
-      const breakpoint: Breakpoint = responsiveArray[i];
+      const breakpoint = responsiveArray[i];
       if (screens[breakpoint]) {
         return breakpoint;
       }
@@ -236,30 +271,48 @@ function List<T>({
         maxWidth: `${100 / columnCount}%`,
       };
     }
-  }, [grid?.column, currentBreakpoint]);
+  }, [JSON.stringify(grid), currentBreakpoint]);
 
-  let childrenContent = isLoading && <div style={{ minHeight: 53 }} />;
+  let childrenContent: React.ReactNode = isLoading && <div style={{ minHeight: 53 }} />;
   if (splitDataSource.length > 0) {
-    const items = splitDataSource.map((item: T, index: number) => renderInnerItem(item, index));
-    const childrenList = React.Children.map(items, (child: React.ReactNode, index: number) => (
-      <div key={listItemsKeys[index]} style={colStyle}>
-        {child}
-      </div>
-    ));
+    const items = splitDataSource.map(renderInternalItem);
     childrenContent = grid ? (
-      <Row gutter={grid.gutter}>{childrenList}</Row>
+      <Row className={clsx(containerCls, cssVarCls)} gutter={grid.gutter}>
+        {React.Children.map(items, (child) => (
+          <div key={child?.key} style={colStyle}>
+            {child}
+          </div>
+        ))}
+      </Row>
     ) : (
-      <ul className={`${prefixCls}-items`}>{items}</ul>
+      <ul className={clsx(`${prefixCls}-items`, containerCls, cssVarCls)}>{items}</ul>
     );
   } else if (!children && !isLoading) {
-    childrenContent = renderEmptyFunc(prefixCls, renderEmpty);
+    childrenContent = (
+      <div className={`${prefixCls}-empty-text`}>
+        {locale?.emptyText || renderEmpty?.('List') || <DefaultRenderEmpty componentName="List" />}
+      </div>
+    );
   }
 
-  const paginationPosition = paginationProps.position || 'bottom';
+  const paginationPosition = paginationProps.position;
+  const contextValue = React.useMemo(
+    () => ({ grid, itemLayout }),
+    [JSON.stringify(grid), itemLayout],
+  );
+
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('List');
+    warning(
+      false,
+      'deprecated',
+      "The `List` component is deprecated and will be removed in the next major version. If you're using version 6.6.0 or later, please use `Listy` instead.",
+    );
+  }
 
   return (
-    <ListContext.Provider value={{ grid, itemLayout }}>
-      <div className={classString} {...rest}>
+    <ListContext.Provider value={contextValue}>
+      <div ref={ref} style={{ ...contextStyle, ...style }} className={classString} {...rest}>
         {(paginationPosition === 'top' || paginationPosition === 'both') && paginationContent}
         {header && <div className={`${prefixCls}-header`}>{header}</div>}
         <Spin {...loadingProp}>
@@ -272,7 +325,24 @@ function List<T>({
       </div>
     </ListContext.Provider>
   );
+};
+
+const ListWithForwardRef = React.forwardRef(InternalList) as (<T>(
+  props: ListProps<T> & {
+    ref?: React.ForwardedRef<HTMLDivElement>;
+  },
+) => ReturnType<typeof InternalList>) &
+  Pick<React.FC, 'displayName'>;
+
+if (process.env.NODE_ENV !== 'production') {
+  ListWithForwardRef.displayName = 'Deprecated.List';
 }
+
+type CompoundedComponent = typeof ListWithForwardRef & {
+  Item: typeof Item;
+};
+
+const List = ListWithForwardRef as CompoundedComponent;
 
 List.Item = Item;
 

@@ -1,17 +1,41 @@
 import * as React from 'react';
-import Dialog from 'rc-dialog';
-import classNames from 'classnames';
 import CloseOutlined from '@ant-design/icons/CloseOutlined';
+import Dialog from '@rc-component/dialog';
+import type { DialogProps } from '@rc-component/dialog';
+import { composeRef, isNonNullable, omit } from '@rc-component/util';
+import { clsx } from 'clsx';
 
-import { getConfirmLocale } from './locale';
-import Button from '../button';
-import { LegacyButtonType, ButtonProps, convertLegacyProps } from '../button/button';
-import LocaleReceiver from '../locale-provider/LocaleReceiver';
-import { ConfigContext, DirectionType } from '../config-provider';
-import { canUseDocElement } from '../_util/styleChecker';
+import ContextIsolator from '../_util/ContextIsolator';
+import { pickClosable, useClosable, useMergedMask, useZIndex } from '../_util/hooks';
+import { useMergeSemantic } from '../_util/hooks/useMergeSemantic';
+import { isNumber, isPlainObject } from '../_util/is';
 import { getTransitionName } from '../_util/motion';
+import type { Breakpoint } from '../_util/responsiveObserver';
+import { canUseDocElement } from '../_util/styleChecker';
+import { devUseWarning } from '../_util/warning';
+import ZIndexContext from '../_util/zindexContext';
+import { ConfigContext } from '../config-provider';
+import { useComponentConfig } from '../config-provider/context';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
+import useFocusable from '../drawer/useFocusable';
+import Skeleton from '../skeleton';
+import { usePanelRef } from '../watermark/context';
+import type { ModalProps, ModalSemanticAllType, MousePosition } from './interface';
+import { Footer, renderCloseIcon } from './shared';
+import useStyle from './style';
 
-let mousePosition: { x: number; y: number } | null;
+let mousePosition: MousePosition;
+
+type ModalSemanticName = keyof NonNullable<ModalSemanticAllType['classNames']>;
+type ModalSemanticRenderInfo = {
+  classNames: NonNullable<ModalSemanticAllType['classNamesNoString']>;
+  styles: NonNullable<ModalSemanticAllType['styles']>;
+};
+
+interface InternalModalProps extends ModalProps {
+  _semanticOmit?: readonly ModalSemanticName[];
+  _renderSemanticContent?: (semantic: ModalSemanticRenderInfo) => React.ReactNode;
+}
 
 // ref: https://github.com/ant-design/ant-design/issues/15795
 const getClickPosition = (e: MouseEvent) => {
@@ -32,195 +56,280 @@ if (canUseDocElement()) {
   document.documentElement.addEventListener('click', getClickPosition, true);
 }
 
-export interface ModalProps {
-  /** 对话框是否可见 */
-  visible?: boolean;
-  /** 确定按钮 loading */
-  confirmLoading?: boolean;
-  /** 标题 */
-  title?: React.ReactNode | string;
-  /** 是否显示右上角的关闭按钮 */
-  closable?: boolean;
-  /** 点击确定回调 */
-  onOk?: (e: React.MouseEvent<HTMLElement>) => void;
-  /** 点击模态框右上角叉、取消按钮、Props.maskClosable 值为 true 时的遮罩层或键盘按下 Esc 时的回调 */
-  onCancel?: (e: React.MouseEvent<HTMLElement>) => void;
-  afterClose?: () => void;
-  /** 垂直居中 */
-  centered?: boolean;
-  /** 宽度 */
-  width?: string | number;
-  /** 底部内容 */
-  footer?: React.ReactNode;
-  /** 确认按钮文字 */
-  okText?: React.ReactNode;
-  /** 确认按钮类型 */
-  okType?: LegacyButtonType;
-  /** 取消按钮文字 */
-  cancelText?: React.ReactNode;
-  /** 点击蒙层是否允许关闭 */
-  maskClosable?: boolean;
-  /** 强制渲染 Modal */
-  forceRender?: boolean;
-  okButtonProps?: ButtonProps;
-  cancelButtonProps?: ButtonProps;
-  destroyOnClose?: boolean;
-  style?: React.CSSProperties;
-  wrapClassName?: string;
-  maskTransitionName?: string;
-  transitionName?: string;
-  className?: string;
-  getContainer?: string | HTMLElement | getContainerFunc | false;
-  zIndex?: number;
-  bodyStyle?: React.CSSProperties;
-  maskStyle?: React.CSSProperties;
-  mask?: boolean;
-  keyboard?: boolean;
-  wrapProps?: any;
-  prefixCls?: string;
-  closeIcon?: React.ReactNode;
-  modalRender?: (node: React.ReactNode) => React.ReactNode;
-  focusTriggerAfterClose?: boolean;
-}
+const Modal: React.FC<ModalProps> = (props) => {
+  const {
+    prefixCls: customizePrefixCls,
+    className,
+    rootClassName,
+    open,
+    wrapClassName,
+    centered,
+    getContainer,
+    style,
+    width = 520,
+    footer,
+    classNames,
+    styles,
+    children,
+    loading,
+    confirmLoading,
+    zIndex: customizeZIndex,
+    mousePosition: customizeMousePosition,
+    onOk,
+    onCancel,
+    okButtonProps,
+    cancelButtonProps,
+    destroyOnHidden,
+    destroyOnClose,
+    panelRef = null,
+    closable,
+    mask: modalMask,
+    modalRender,
+    maskClosable,
+    _semanticOmit,
+    scrollLock,
 
-type getContainerFunc = () => HTMLElement;
+    // Focusable
+    focusTriggerAfterClose,
+    focusable,
+    _renderSemanticContent,
 
-export interface ModalFuncProps {
-  prefixCls?: string;
-  className?: string;
-  visible?: boolean;
-  title?: React.ReactNode;
-  closable?: boolean;
-  content?: React.ReactNode;
-  // TODO: find out exact types
-  onOk?: (...args: any[]) => any;
-  onCancel?: (...args: any[]) => any;
-  afterClose?: () => void;
-  okButtonProps?: ButtonProps;
-  cancelButtonProps?: ButtonProps;
-  centered?: boolean;
-  width?: string | number;
-  okText?: React.ReactNode;
-  okType?: LegacyButtonType;
-  cancelText?: React.ReactNode;
-  icon?: React.ReactNode;
-  mask?: boolean;
-  maskClosable?: boolean;
-  zIndex?: number;
-  okCancel?: boolean;
-  style?: React.CSSProperties;
-  maskStyle?: React.CSSProperties;
-  type?: 'info' | 'success' | 'error' | 'warn' | 'warning' | 'confirm';
-  keyboard?: boolean;
-  getContainer?: string | HTMLElement | getContainerFunc | false;
-  autoFocusButton?: null | 'ok' | 'cancel';
-  transitionName?: string;
-  maskTransitionName?: string;
-  direction?: DirectionType;
-  bodyStyle?: React.CSSProperties;
-  closeIcon?: React.ReactNode;
-  modalRender?: (node: React.ReactNode) => React.ReactNode;
-  focusTriggerAfterClose?: boolean;
-}
+    ...restProps
+  } = props as InternalModalProps;
 
-export interface ModalLocale {
-  okText: string;
-  cancelText: string;
-  justOkText: string;
-}
-
-const Modal: React.FC<ModalProps> = props => {
   const {
     getPopupContainer: getContextPopupContainer,
     getPrefixCls,
     direction,
-  } = React.useContext(ConfigContext);
+    className: contextClassName,
+    style: contextStyle,
+    classNames: contextClassNames,
+    styles: contextStyles,
+    centered: contextCentered,
+    cancelButtonProps: contextCancelButtonProps,
+    okButtonProps: contextOkButtonProps,
+    mask: contextMask,
+    focusable: contextFocusable,
+  } = useComponentConfig('modal');
 
-  const handleCancel = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const { onCancel } = props;
-    onCancel?.(e);
-  };
+  const { modal: modalContext } = React.useContext(ConfigContext);
 
-  const handleOk = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const { onOk } = props;
-    onOk?.(e);
-  };
-
-  const renderFooter = (locale: ModalLocale) => {
-    const { okText, okType, cancelText, confirmLoading } = props;
-    return (
-      <>
-        <Button onClick={handleCancel} {...props.cancelButtonProps}>
-          {cancelText || locale.cancelText}
-        </Button>
-        <Button
-          {...convertLegacyProps(okType)}
-          loading={confirmLoading}
-          onClick={handleOk}
-          {...props.okButtonProps}
-        >
-          {okText || locale.okText}
-        </Button>
-      </>
-    );
-  };
-
-  const {
-    prefixCls: customizePrefixCls,
-    footer,
-    visible,
-    wrapClassName,
-    centered,
-    getContainer,
-    closeIcon,
-    focusTriggerAfterClose = true,
-    ...restProps
-  } = props;
-
+  const [closableAfterClose, onClose] = React.useMemo(() => {
+    if (typeof closable === 'boolean') {
+      return [undefined, undefined];
+    }
+    return [closable?.afterClose, closable?.onClose];
+  }, [closable]);
   const prefixCls = getPrefixCls('modal', customizePrefixCls);
   const rootPrefixCls = getPrefixCls();
 
-  const defaultFooter = (
-    <LocaleReceiver componentName="Modal" defaultLocale={getConfirmLocale()}>
-      {renderFooter}
-    </LocaleReceiver>
+  // ============================ Mask ============================
+  const [mergedMask, maskBlurClassName, mergeMaskClosable] = useMergedMask(
+    modalMask,
+    contextMask,
+    prefixCls,
+    maskClosable,
   );
 
-  const closeIconToRender = (
-    <span className={`${prefixCls}-close-x`}>
-      {closeIcon || <CloseOutlined className={`${prefixCls}-close-icon`} />}
-    </span>
+  // ========================== Focusable =========================
+  const mergedFocusable = useFocusable(
+    { ...contextFocusable, ...focusable },
+    mergedMask,
+    focusTriggerAfterClose,
   );
 
-  const wrapClassNameExtended = classNames(wrapClassName, {
-    [`${prefixCls}-centered`]: !!centered,
+  // ============================ Open ============================
+  const handleCancel = (
+    e: React.MouseEvent<HTMLButtonElement> | React.KeyboardEvent<HTMLElement>,
+  ) => {
+    if (confirmLoading) {
+      return;
+    }
+    onCancel?.(e);
+    onClose?.();
+  };
+
+  const handleOk = (e: React.MouseEvent<HTMLButtonElement>) => {
+    onOk?.(e);
+    onClose?.();
+  };
+
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Modal');
+
+    [
+      ['bodyStyle', 'styles.body'],
+      ['maskStyle', 'styles.mask'],
+      ['destroyOnClose', 'destroyOnHidden'],
+      ['autoFocusButton', 'focusable.autoFocusButton'],
+      ['focusTriggerAfterClose', 'focusable.focusTriggerAfterClose'],
+      ['maskClosable', 'mask.closable'],
+    ].forEach(([deprecatedName, newName]) => {
+      warning.deprecated(!(deprecatedName in props), deprecatedName, newName);
+    });
+  }
+
+  // Style
+  const rootCls = useCSSVarCls(prefixCls);
+  const [hashId, cssVarCls] = useStyle(prefixCls, rootCls);
+
+  const wrapClassNameExtended = clsx(wrapClassName, {
+    [`${prefixCls}-centered`]: centered ?? contextCentered,
     [`${prefixCls}-wrap-rtl`]: direction === 'rtl',
   });
-  return (
-    <Dialog
-      {...restProps}
-      getContainer={
-        getContainer === undefined ? (getContextPopupContainer as getContainerFunc) : getContainer
-      }
-      prefixCls={prefixCls}
-      wrapClassName={wrapClassNameExtended}
-      footer={footer === undefined ? defaultFooter : footer}
-      visible={visible}
-      mousePosition={mousePosition}
-      onClose={handleCancel}
-      closeIcon={closeIconToRender}
-      focusTriggerAfterClose={focusTriggerAfterClose}
-      transitionName={getTransitionName(rootPrefixCls, 'zoom', props.transitionName)}
-      maskTransitionName={getTransitionName(rootPrefixCls, 'fade', props.maskTransitionName)}
-    />
-  );
-};
 
-Modal.defaultProps = {
-  width: 520,
-  confirmLoading: false,
-  visible: false,
-  okType: 'primary' as LegacyButtonType,
+  const dialogFooter =
+    footer !== null && !loading ? (
+      <Footer
+        {...props}
+        okButtonProps={{ ...contextOkButtonProps, ...okButtonProps }}
+        onOk={handleOk}
+        cancelButtonProps={{ ...contextCancelButtonProps, ...cancelButtonProps }}
+        onCancel={handleCancel}
+      />
+    ) : null;
+
+  const [rawClosable, mergedCloseIcon, closeBtnIsDisabled, ariaProps] = useClosable(
+    pickClosable(props),
+    pickClosable(modalContext),
+    {
+      closable: true,
+      closeIcon: <CloseOutlined className={`${prefixCls}-close-icon`} />,
+      closeIconRender: (icon) => renderCloseIcon(prefixCls, icon),
+    },
+  );
+
+  const mergedClosable = rawClosable
+    ? {
+        disabled: closeBtnIsDisabled,
+        closeIcon: mergedCloseIcon,
+        afterClose: closableAfterClose,
+        ...ariaProps,
+      }
+    : false;
+
+  // ============================ modalRender ============================
+  const mergedModalRender = modalRender
+    ? (node: React.ReactNode) => <div className={`${prefixCls}-render`}>{modalRender(node)}</div>
+    : undefined;
+  // ============================ Refs ============================
+  // Select `ant-modal-container` by `panelRef`
+  const panelClassName = `.${prefixCls}-${modalRender ? 'render' : 'container'}`;
+  const innerPanelRef = usePanelRef(panelClassName);
+  const mergedPanelRef = composeRef(panelRef, innerPanelRef) as React.Ref<HTMLDivElement>;
+
+  // ============================ zIndex ============================
+  const [zIndex, contextZIndex] = useZIndex('Modal', customizeZIndex);
+
+  const mergedProps: ModalProps = {
+    ...props,
+    width,
+    panelRef,
+    focusTriggerAfterClose: mergedFocusable.focusTriggerAfterClose,
+    focusable: mergedFocusable,
+    mask: mergedMask,
+    maskClosable: mergeMaskClosable,
+    zIndex,
+  };
+
+  const [mergedClassNames, mergedStyles] = useMergeSemantic(
+    [contextClassNames, classNames, maskBlurClassName],
+    [contextStyles, styles],
+    {
+      props: mergedProps,
+    },
+  );
+
+  const dialogClassNames = (
+    _semanticOmit ? omit(mergedClassNames, _semanticOmit) : mergedClassNames
+  ) as typeof mergedClassNames;
+  const dialogStyles = (
+    _semanticOmit ? omit(mergedStyles, _semanticOmit) : mergedStyles
+  ) as typeof mergedStyles;
+
+  const semanticContent = _renderSemanticContent
+    ? _renderSemanticContent({
+        classNames: mergedClassNames,
+        styles: mergedStyles,
+      })
+    : children;
+
+  // =========================== Width ============================
+  const [numWidth, responsiveWidth] = React.useMemo<
+    [string | number | undefined, Partial<Record<Breakpoint, string | number>> | undefined]
+  >(() => {
+    if (isPlainObject(width)) {
+      return [undefined, width];
+    }
+    return [width, undefined];
+  }, [width]);
+
+  const responsiveWidthVars = React.useMemo(() => {
+    const vars: Record<string, string> = {};
+    if (responsiveWidth) {
+      Object.keys(responsiveWidth).forEach((breakpoint) => {
+        const breakpointWidth = responsiveWidth[breakpoint as Breakpoint];
+        if (isNonNullable(breakpointWidth)) {
+          vars[`--${prefixCls}-${breakpoint}-width`] = isNumber(breakpointWidth)
+            ? `${breakpointWidth}px`
+            : breakpointWidth;
+        }
+      });
+    }
+    return vars;
+  }, [prefixCls, responsiveWidth]);
+
+  // =========================== Render ===========================
+  return (
+    <ContextIsolator form space>
+      <ZIndexContext.Provider value={contextZIndex}>
+        <Dialog
+          width={numWidth}
+          {...restProps}
+          zIndex={zIndex}
+          getContainer={getContainer === undefined ? getContextPopupContainer : getContainer}
+          prefixCls={prefixCls}
+          rootClassName={clsx(hashId, rootClassName, cssVarCls, rootCls, dialogClassNames.root)}
+          rootStyle={dialogStyles.root}
+          footer={dialogFooter}
+          visible={open}
+          mousePosition={customizeMousePosition ?? mousePosition}
+          onClose={handleCancel as DialogProps['onClose']}
+          closable={mergedClosable}
+          closeIcon={mergedCloseIcon}
+          transitionName={getTransitionName(rootPrefixCls, 'zoom', props.transitionName)}
+          maskTransitionName={getTransitionName(rootPrefixCls, 'fade', props.maskTransitionName)}
+          mask={mergedMask}
+          maskClosable={mergeMaskClosable}
+          scrollLock={scrollLock}
+          className={clsx(hashId, className, contextClassName)}
+          style={{ ...contextStyle, ...style, ...responsiveWidthVars }}
+          classNames={{
+            ...dialogClassNames,
+            wrapper: clsx(dialogClassNames.wrapper, wrapClassNameExtended),
+          }}
+          styles={dialogStyles}
+          panelRef={mergedPanelRef}
+          destroyOnHidden={destroyOnHidden ?? destroyOnClose}
+          modalRender={mergedModalRender}
+          // Focusable
+          focusTriggerAfterClose={mergedFocusable.focusTriggerAfterClose}
+          focusTrap={mergedFocusable.trap}
+        >
+          {loading ? (
+            <Skeleton
+              active
+              title={false}
+              paragraph={{ rows: 4 }}
+              className={`${prefixCls}-body-skeleton`}
+            />
+          ) : (
+            semanticContent
+          )}
+        </Dialog>
+      </ZIndexContext.Provider>
+    </ContextIsolator>
+  );
 };
 
 export default Modal;

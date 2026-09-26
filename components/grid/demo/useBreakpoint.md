@@ -1,36 +1,7 @@
----
-order: 10
-title: useBreakpoint Hook
----
-
 ## zh-CN
 
-使用 `useBreakpoint` Hook 个性化布局。
+使用 `useBreakpoint` Hook 个性化布局，其中 `xs` 仅当满足最小宽度时生效。
 
 ## en-US
 
-Use `useBreakpoint` Hook provide personalized layout.
-
-```jsx
-import { Grid, Tag } from 'antd';
-
-const { useBreakpoint } = Grid;
-
-function UseBreakpointDemo() {
-  const screens = useBreakpoint();
-  return (
-    <>
-      Current break point:{' '}
-      {Object.entries(screens)
-        .filter(screen => !!screen[1])
-        .map(screen => (
-          <Tag color="blue" key={screen[0]}>
-            {screen[0]}
-          </Tag>
-        ))}
-    </>
-  );
-}
-
-ReactDOM.render(<UseBreakpointDemo />, mountNode);
-```
+Use `useBreakpoint` Hook provide personalized layout. `xs` only takes effect when the screen match the min width.

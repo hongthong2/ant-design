@@ -1,169 +1,93 @@
 /* eslint no-param-reassign: 0 */
 // This config is for building dist files
-const chalk = require('chalk');
-const getWebpackConfig = require('@ant-design/tools/lib/getWebpackConfig');
-const IgnoreEmitPlugin = require('ignore-emit-webpack-plugin');
+const { getWebpackConfig } = require('@ant-design/tools');
 const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
-const { ESBuildMinifyPlugin } = require('esbuild-loader');
-const DuplicatePackageCheckerPlugin = require('duplicate-package-checker-webpack-plugin');
-const darkVars = require('./scripts/dark-vars');
-const compactVars = require('./scripts/compact-vars');
+const { codecovWebpackPlugin } = require('@codecov/webpack-plugin');
+const CircularDependencyPlugin = require('circular-dependency-plugin');
+const DuplicatePackageCheckerPlugin = require('@madccc/duplicate-package-checker-webpack-plugin');
+const path = require('node:path');
 
-const { webpack } = getWebpackConfig;
-
-function injectLessVariables(config, variables) {
-  (Array.isArray(config) ? config : [config]).forEach(conf => {
-    conf.module.rules.forEach(rule => {
-      // filter less rule
-      if (rule.test instanceof RegExp && rule.test.test('.less')) {
-        const lessRule = rule.use[rule.use.length - 1];
-        if (lessRule.options.lessOptions) {
-          lessRule.options.lessOptions.modifyVars = {
-            ...lessRule.options.lessOptions.modifyVars,
-            ...variables,
-          };
-        } else {
-          lessRule.options.modifyVars = {
-            ...lessRule.options.modifyVars,
-            ...variables,
-          };
-        }
-      }
-    });
-  });
-
-  return config;
-}
-
-// noParse still leave `require('./locale' + name)` in dist files
-// ignore is better: http://stackoverflow.com/q/25384360
-function ignoreMomentLocale(webpackConfig) {
-  delete webpackConfig.module.noParse;
-  webpackConfig.plugins.push(new webpack.IgnorePlugin(/^\.\/locale$/, /moment$/));
-}
-
-function addLocales(webpackConfig) {
+function addLocales(config) {
+  const newConfig = { ...config }; // Avoid mutating the original config
   let packageName = 'antd-with-locales';
-  if (webpackConfig.entry['antd.min']) {
+  if (newConfig.entry['antd.min']) {
     packageName += '.min';
   }
-  webpackConfig.entry[packageName] = './index-with-locales.js';
-  webpackConfig.output.filename = '[name].js';
+  newConfig.entry[packageName] = './index-with-locales.js';
+  newConfig.output.filename = '[name].js';
+  return newConfig;
 }
 
-function externalMoment(config) {
-  config.externals.moment = {
-    root: 'moment',
-    commonjs2: 'moment',
-    commonjs: 'moment',
-    amd: 'moment',
+function externalDayjs(config) {
+  const newConfig = { ...config }; // Shallow copy for safety
+  newConfig.externals.dayjs = {
+    root: 'dayjs',
+    commonjs2: 'dayjs',
+    commonjs: 'dayjs',
+    amd: 'dayjs',
   };
+  return newConfig;
 }
 
-function injectWarningCondition(config) {
-  config.module.rules.forEach(rule => {
-    // Remove devWarning if needed
-    if (rule.test.test('test.tsx')) {
-      rule.use = [
-        ...rule.use,
-        {
-          loader: 'string-replace-loader',
-          options: {
-            search: 'devWarning(',
-            replace: "if (process.env.NODE_ENV !== 'production') devWarning(",
-          },
-        },
-      ];
-    }
-  });
+function externalCssinjs(config) {
+  const newConfig = { ...config }; // Shallow copy for safety
+  newConfig.resolve = newConfig.resolve || {};
+  newConfig.resolve.alias = newConfig.resolve.alias || {};
+  newConfig.resolve.alias['@ant-design/cssinjs'] = path.resolve(__dirname, 'alias/cssinjs');
+  return newConfig;
 }
 
-function processWebpackThemeConfig(themeConfig, theme, vars) {
-  themeConfig.forEach(config => {
-    ignoreMomentLocale(config);
-    externalMoment(config);
-
-    // rename default entry to ${theme} entry
-    Object.keys(config.entry).forEach(entryName => {
-      const originPath = config.entry[entryName];
-      let replacedPath = [...originPath];
-
-      // We will replace `./index` to `./index-style-only` since theme dist only use style file
-      if (originPath.length === 1 && originPath[0] === './index') {
-        replacedPath = ['./index-style-only'];
-      } else {
-        // eslint-disable-next-line no-console
-        console.log(chalk.red('🆘 Seems entry has changed! It should be `./index`'));
-      }
-
-      config.entry[entryName.replace('antd', `antd.${theme}`)] = replacedPath;
-      delete config.entry[entryName];
-    });
-
-    // apply ${theme} less variables
-    injectLessVariables(config, vars);
-
-    const themeReg = new RegExp(`${theme}(.min)?\\.js(\\.map)?$`);
-    // ignore emit ${theme} entry js & js.map file
-    config.plugins.push(new IgnoreEmitPlugin(themeReg));
-  });
-}
-
-const legacyEntryVars = {
-  'root-entry-name': 'default',
-};
-const webpackConfig = injectLessVariables(getWebpackConfig(false), legacyEntryVars);
-const webpackDarkConfig = injectLessVariables(getWebpackConfig(false), legacyEntryVars);
-const webpackCompactConfig = injectLessVariables(getWebpackConfig(false), legacyEntryVars);
-const webpackVariableConfig = injectLessVariables(getWebpackConfig(false), {
-  'root-entry-name': 'variable',
-});
-
-webpackConfig.forEach(config => {
-  injectWarningCondition(config);
-});
-
-if (process.env.RUN_ENV === 'PRODUCTION') {
-  webpackConfig.forEach(config => {
-    ignoreMomentLocale(config);
-    externalMoment(config);
-    addLocales(config);
-    // Reduce non-minified dist files size
-    config.optimization.usedExports = true;
-    // use esbuild
-    if (process.env.ESBUILD || process.env.CSB_REPO) {
-      config.optimization.minimizer[0] = new ESBuildMinifyPlugin({
-        target: 'es2015',
-        css: true,
-      });
-    }
-
-    config.plugins.push(
+function addPluginsForProduction(config) {
+  const newConfig = { ...config }; // Shallow copy for safety
+  if (!process.env.CI || process.env.ANALYZER) {
+    newConfig.plugins.push(
       new BundleAnalyzerPlugin({
         analyzerMode: 'static',
         openAnalyzer: false,
         reportFilename: '../report.html',
       }),
     );
+  }
+  if (newConfig.mode === 'production' && !process.env.PRODUCTION_ONLY) {
+    newConfig.plugins.push(
+      new DuplicatePackageCheckerPlugin({
+        verbose: true,
+        emitError: true,
+      }),
+    );
+  }
 
-    if (!process.env.NO_DUP_CHECK) {
-      config.plugins.push(
-        new DuplicatePackageCheckerPlugin({
-          verbose: true,
-          emitError: true,
-        }),
-      );
-    }
-  });
+  newConfig.plugins.push(
+    codecovWebpackPlugin({
+      enableBundleAnalysis: process.env.CODECOV_TOKEN !== undefined,
+      bundleName: 'antd.min',
+      uploadToken: process.env.CODECOV_TOKEN,
+      gitService: 'github',
+    }),
+    new CircularDependencyPlugin({
+      failOnError: true,
+    }),
+  );
 
-  processWebpackThemeConfig(webpackDarkConfig, 'dark', darkVars);
-  processWebpackThemeConfig(webpackCompactConfig, 'compact', compactVars);
-  processWebpackThemeConfig(webpackVariableConfig, 'variable', {});
+  return newConfig;
 }
 
-module.exports = [
-  ...webpackConfig,
-  ...webpackDarkConfig,
-  ...webpackCompactConfig,
-  ...webpackVariableConfig,
-];
+let webpackConfig = getWebpackConfig(false);
+
+if (process.env.PRODUCTION_ONLY) {
+  console.log('🍐 Build production only');
+  webpackConfig = webpackConfig.filter((config) => config.mode === 'production');
+}
+
+if (process.env.RUN_ENV === 'PRODUCTION') {
+  webpackConfig = webpackConfig.map((config) => {
+    let newConfig = addLocales(config);
+    newConfig = externalDayjs(newConfig);
+    newConfig = externalCssinjs(newConfig);
+    newConfig.optimization.usedExports = true;
+    newConfig = addPluginsForProduction(newConfig);
+    return newConfig;
+  });
+}
+
+module.exports = [...webpackConfig];

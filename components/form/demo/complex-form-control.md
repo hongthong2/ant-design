@@ -1,10 +1,3 @@
----
-order: 6
-title:
-  zh-CN: 复杂一点的控件
-  en-US: complex form control
----
-
 ## zh-CN
 
 这里演示 `Form.Item` 内有多个元素的使用方式。`<Form.Item name="field" />` 只会对它的直接子元素绑定表单功能，例如直接包裹了 Input/Select。如果控件前后还有一些文案或样式装点，或者一个表单项内有多个控件，你可以使用内嵌的 `Form.Item` 完成。你可以给 `Form.Item` 自定义 `style` 进行内联布局，或者添加 `noStyle` 作为纯粹的无样式绑定组件（类似 3.x 中的 `getFieldDecorator`）。
@@ -13,11 +6,14 @@ title:
 - <Form.Item label="Field" name="field">
 -   <Input />
 - </Form.Item>
-+ <Form.Item label="Field">
-+   <Form.Item name="field" noStyle><Input /></Form.Item> // 直接包裹才会绑定表单
++ <Form.Item label="Field" htmlFor="field">
++   <Form.Item name="field" noStyle><Input id="field" /></Form.Item>
++   {/* 直接包裹才会绑定表单 */}
 +   <span>description</span>
 + </Form.Item>
 ```
+
+当带有 `label` 的外层 `Form.Item` 没有 `name` 时，它无法自动推断内层控件的 ID。如果该标签对应一个控件，请为外层设置 `htmlFor`，并为内层控件设置相同的 `id`，以保留点击标签聚焦和屏幕阅读器关联。
 
 这里展示了三种典型场景：
 
@@ -37,11 +33,14 @@ This demo shows how to use `Form.Item` with multiple controls. `<Form.Item name=
 - <Form.Item label="Field" name="field">
 -   <Input />
 - </Form.Item>
-+ <Form.Item label="Field">
-+   <Form.Item name="field" noStyle><Input /></Form.Item> // that will bind input
++ <Form.Item label="Field" htmlFor="field">
++   <Form.Item name="field" noStyle><Input id="field" /></Form.Item>
++   {/* The nested item binds the input. */}
 +   <span>description</span>
 + </Form.Item>
 ```
+
+When the outer labeled `Form.Item` has no `name`, it cannot infer the nested control's ID. If the label describes a single control, set `htmlFor` on the outer item and the same `id` on the nested control to preserve label-click focus and screen reader association.
 
 This demo shows three typical usages:
 
@@ -52,78 +51,3 @@ This demo shows three typical usages:
 > Note that, in this case, no more `name` property should be left in Form.Item with label.
 
 See the `Customized Form Controls` demo below for more advanced usage.
-
-```jsx
-import { Form, Input, Select, Tooltip, Button, Space, Typography } from 'antd';
-
-const { Option } = Select;
-
-const Demo = () => {
-  const onFinish = values => {
-    console.log('Received values of form: ', values);
-  };
-
-  return (
-    <Form name="complex-form" onFinish={onFinish} labelCol={{ span: 8 }} wrapperCol={{ span: 16 }}>
-      <Form.Item label="Username">
-        <Space>
-          <Form.Item
-            name="username"
-            noStyle
-            rules={[{ required: true, message: 'Username is required' }]}
-          >
-            <Input style={{ width: 160 }} placeholder="Please input" />
-          </Form.Item>
-          <Tooltip title="Useful information">
-            <Typography.Link href="#API">Need Help?</Typography.Link>
-          </Tooltip>
-        </Space>
-      </Form.Item>
-      <Form.Item label="Address">
-        <Input.Group compact>
-          <Form.Item
-            name={['address', 'province']}
-            noStyle
-            rules={[{ required: true, message: 'Province is required' }]}
-          >
-            <Select placeholder="Select province">
-              <Option value="Zhejiang">Zhejiang</Option>
-              <Option value="Jiangsu">Jiangsu</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item
-            name={['address', 'street']}
-            noStyle
-            rules={[{ required: true, message: 'Street is required' }]}
-          >
-            <Input style={{ width: '50%' }} placeholder="Input street" />
-          </Form.Item>
-        </Input.Group>
-      </Form.Item>
-      <Form.Item label="BirthDate" style={{ marginBottom: 0 }}>
-        <Form.Item
-          name="year"
-          rules={[{ required: true }]}
-          style={{ display: 'inline-block', width: 'calc(50% - 8px)' }}
-        >
-          <Input placeholder="Input birth year" />
-        </Form.Item>
-        <Form.Item
-          name="month"
-          rules={[{ required: true }]}
-          style={{ display: 'inline-block', width: 'calc(50% - 8px)', margin: '0 8px' }}
-        >
-          <Input placeholder="Input birth month" />
-        </Form.Item>
-      </Form.Item>
-      <Form.Item label=" " colon={false}>
-        <Button type="primary" htmlType="submit">
-          Submit
-        </Button>
-      </Form.Item>
-    </Form>
-  );
-};
-
-ReactDOM.render(<Demo />, mountNode);
-```

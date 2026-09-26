@@ -1,29 +1,7 @@
----
-order: 0
-title:
-  zh-CN: 基本用法
-  en-US: Basic
----
-
 ## zh-CN
 
-简单的步骤条。
+简单的步骤条，使用 `variant` 属性来设置不同的样式，使用 `size` 控制大小。
 
 ## en-US
 
-The most basic step bar.
-
-```jsx
-import { Steps } from 'antd';
-
-const { Step } = Steps;
-
-ReactDOM.render(
-  <Steps current={1}>
-    <Step title="Finished" description="This is a description." />
-    <Step title="In Progress" subTitle="Left 00:00:08" description="This is a description." />
-    <Step title="Waiting" description="This is a description." />
-  </Steps>,
-  mountNode,
-);
-```
+The most basic step bar. Use the `variant` property to set different styles and `size` to control the size.

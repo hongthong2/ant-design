@@ -1,43 +1,67 @@
-import * as React from 'react';
-import classNames from 'classnames';
-import { ListGridType, ListContext } from './index';
-import { Col } from '../grid';
-import { ConfigContext } from '../config-provider';
-import { cloneElement } from '../_util/reactNode';
+import type { CSSProperties, HTMLAttributes, ReactNode } from 'react';
+import React, { useContext } from 'react';
+import { toArray } from '@rc-component/util';
+import { clsx } from 'clsx';
 
-export interface ListItemProps extends React.HTMLAttributes<HTMLDivElement> {
+import { isString } from '../_util/is';
+import { cloneElement } from '../_util/reactNode';
+import { ConfigContext } from '../config-provider';
+import { Col } from '../grid';
+import { ListContext } from './context';
+
+export type ListItemSemanticName = keyof ListItemSemanticClassNames & keyof ListItemSemanticStyles;
+
+export type ListItemSemanticClassNames = {
+  actions?: string;
+  extra?: string;
+};
+
+export type ListItemSemanticStyles = {
+  actions?: React.CSSProperties;
+  extra?: React.CSSProperties;
+};
+
+export interface ListItemProps extends HTMLAttributes<HTMLDivElement> {
   className?: string;
-  children?: React.ReactNode;
+  classNames?: ListItemSemanticClassNames;
+  children?: ReactNode;
   prefixCls?: string;
-  style?: React.CSSProperties;
-  extra?: React.ReactNode;
-  actions?: React.ReactNode[];
-  grid?: ListGridType;
-  colStyle?: React.CSSProperties;
+  style?: CSSProperties;
+  styles?: ListItemSemanticStyles;
+  extra?: ReactNode;
+  actions?: ReactNode[];
+  colStyle?: CSSProperties;
 }
 
 export interface ListItemMetaProps {
-  avatar?: React.ReactNode;
+  avatar?: ReactNode;
   className?: string;
-  children?: React.ReactNode;
-  description?: React.ReactNode;
+  children?: ReactNode;
+  description?: ReactNode;
   prefixCls?: string;
-  style?: React.CSSProperties;
-  title?: React.ReactNode;
+  style?: CSSProperties;
+  title?: ReactNode;
 }
 
-export const Meta: React.FC<ListItemMetaProps> = ({
-  prefixCls: customizePrefixCls,
-  className,
-  avatar,
-  title,
-  description,
-  ...others
-}) => {
-  const { getPrefixCls } = React.useContext(ConfigContext);
+export interface ListItemMetaRef {
+  nativeElement: HTMLDivElement;
+}
+
+type ListItemClassNamesModule = keyof Exclude<ListItemProps['classNames'], undefined>;
+type ListItemStylesModule = keyof Exclude<ListItemProps['styles'], undefined>;
+
+export const Meta = React.forwardRef<ListItemMetaRef, ListItemMetaProps>((props, ref) => {
+  const { prefixCls: customizePrefixCls, className, avatar, title, description, ...others } = props;
+  const { getPrefixCls } = useContext(ConfigContext);
 
   const prefixCls = getPrefixCls('list', customizePrefixCls);
-  const classString = classNames(`${prefixCls}-item-meta`, className);
+  const classString = clsx(`${prefixCls}-item-meta`, className);
+
+  const nativeElementRef = React.useRef<HTMLDivElement>(null);
+
+  React.useImperativeHandle(ref, () => ({
+    nativeElement: nativeElementRef.current!,
+  }));
 
   const content = (
     <div className={`${prefixCls}-item-meta-content`}>
@@ -47,37 +71,40 @@ export const Meta: React.FC<ListItemMetaProps> = ({
   );
 
   return (
-    <div {...others} className={classString}>
+    <div ref={nativeElementRef} {...others} className={classString}>
       {avatar && <div className={`${prefixCls}-item-meta-avatar`}>{avatar}</div>}
       {(title || description) && content}
     </div>
   );
-};
+});
 
-export interface ListItemTypeProps extends React.FC<ListItemProps> {
-  Meta: typeof Meta;
-}
+const InternalItem = React.forwardRef<HTMLDivElement, ListItemProps>((props, ref) => {
+  const {
+    prefixCls: customizePrefixCls,
+    children,
+    actions,
+    extra,
+    styles,
+    className,
+    classNames: customizeClassNames,
+    colStyle,
+    ...others
+  } = props;
+  const { grid, itemLayout } = useContext(ListContext);
+  const { getPrefixCls, list } = useContext(ConfigContext);
 
-const Item: ListItemTypeProps = ({
-  prefixCls: customizePrefixCls,
-  children,
-  actions,
-  extra,
-  className,
-  colStyle,
-  ...others
-}) => {
-  const { grid, itemLayout } = React.useContext(ListContext);
-  const { getPrefixCls } = React.useContext(ConfigContext);
+  const moduleClass = (moduleName: ListItemClassNamesModule) =>
+    clsx(list?.item?.classNames?.[moduleName], customizeClassNames?.[moduleName]);
+
+  const moduleStyle = (moduleName: ListItemStylesModule): React.CSSProperties => ({
+    ...list?.item?.styles?.[moduleName],
+    ...styles?.[moduleName],
+  });
 
   const isItemContainsTextNodeAndNotSingular = () => {
-    let result;
-    React.Children.forEach(children, (element: React.ReactElement<any>) => {
-      if (typeof element === 'string') {
-        result = true;
-      }
-    });
-    return result && React.Children.count(children) > 1;
+    const childNodes: React.ReactNode[] = toArray(children);
+    const hasTextNode = childNodes.some(isString);
+    return hasTextNode && childNodes.length > 1;
   };
 
   const isFlexMode = () => {
@@ -89,8 +116,12 @@ const Item: ListItemTypeProps = ({
 
   const prefixCls = getPrefixCls('list', customizePrefixCls);
   const actionsContent = actions && actions.length > 0 && (
-    <ul className={`${prefixCls}-item-action`} key="actions">
-      {actions.map((action: React.ReactNode, i: number) => (
+    <ul
+      className={clsx(`${prefixCls}-item-action`, moduleClass('actions'))}
+      key="actions"
+      style={moduleStyle('actions')}
+    >
+      {actions.map((action: ReactNode, i: number) => (
         // eslint-disable-next-line react/no-array-index-key
         <li key={`${prefixCls}-item-action-${i}`}>
           {action}
@@ -103,7 +134,8 @@ const Item: ListItemTypeProps = ({
   const itemChildren = (
     <Element
       {...(others as any)} // `li` element `onCopy` prop args is not same as `div`
-      className={classNames(
+      {...(!grid ? { ref } : {})}
+      className={clsx(
         `${prefixCls}-item`,
         {
           [`${prefixCls}-item-no-flex`]: !isFlexMode(),
@@ -117,22 +149,31 @@ const Item: ListItemTypeProps = ({
               {children}
               {actionsContent}
             </div>,
-            <div className={`${prefixCls}-item-extra`} key="extra">
+            <div
+              className={clsx(`${prefixCls}-item-extra`, moduleClass('extra'))}
+              key="extra"
+              style={moduleStyle('extra')}
+            >
               {extra}
             </div>,
           ]
         : [children, actionsContent, cloneElement(extra, { key: 'extra' })]}
     </Element>
   );
-
   return grid ? (
-    <Col flex={1} style={colStyle}>
+    <Col ref={ref} flex={1} style={colStyle}>
       {itemChildren}
     </Col>
   ) : (
     itemChildren
   );
+});
+
+export type ListItemTypeProps = typeof InternalItem & {
+  Meta: typeof Meta;
 };
+
+const Item = InternalItem as ListItemTypeProps;
 
 Item.Meta = Meta;
 

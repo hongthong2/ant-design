@@ -1,197 +1,296 @@
 ---
-order: 7
+group:
+  title: 进阶使用
+  order: 1
+order: 0
 title: 定制主题
+demo:
+  tocDepth: 4
 ---
 
 Ant Design 设计规范和技术上支持灵活的样式定制，以满足业务和品牌上多样化的视觉需求，包括但不限于全局样式（主色、圆角、边框）和指定组件的视觉定制。
 
-![一些配置好的主题](https://zos.alipayobjects.com/rmsportal/zTFoszBtDODhXfLAazfSpYbSLSEeytoG.png)
+自从 5.0 版本以来，我们提供了一套全新的定制主题方案。不同于 4.x 版本的 less 和 CSS 变量，有了 CSS-in-JS 的加持后，动态主题的能力也得到了加强，包括但不限于：
 
-## Ant Design 的样式变量
+1. 支持动态切换主题；
+2. 支持同时存在多个主题；
+3. 支持针对某个/某些组件修改主题变量；
+4. ...
 
-antd 的样式使用了 [Less](http://lesscss.org/) 作为开发语言，并定义了一系列全局/组件的样式变量，你可以根据需求进行相应调整。
+## 配置主题
 
-以下是一些最常用的通用变量，所有样式变量可以在 [这里](https://github.com/ant-design/ant-design/blob/master/components/style/themes/default.less) 找到。
+我们把影响主题的最小元素称为 **Design Token**。通过修改 Design Token，我们可以呈现出各种各样的主题或者组件。通过在 `ConfigProvider` 中传入 `theme` 属性，可以配置主题。
 
-```less
-@primary-color: #1890ff; // 全局主色
-@link-color: #1890ff; // 链接色
-@success-color: #52c41a; // 成功色
-@warning-color: #faad14; // 警告色
-@error-color: #f5222d; // 错误色
-@font-size-base: 14px; // 主字号
-@heading-color: rgba(0, 0, 0, 0.85); // 标题色
-@text-color: rgba(0, 0, 0, 0.65); // 主文本色
-@text-color-secondary: rgba(0, 0, 0, 0.45); // 次文本色
-@disabled-color: rgba(0, 0, 0, 0.25); // 失效色
-@border-radius-base: 2px; // 组件/浮层圆角
-@border-color-base: #d9d9d9; // 边框色
-@box-shadow-base: 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 6px 16px 0 rgba(0, 0, 0, 0.08),
-  0 9px 28px 8px rgba(0, 0, 0, 0.05); // 浮层阴影
+<!-- prettier-ignore -->
+:::warning
+`ConfigProvider` 对 `message.xxx`、`Modal.xxx`、`notification.xxx` 等静态方法不会生效，原因是在这些方法中，antd 会通过 `ReactDOM.render` 动态创建新的 React 实体。其 context 与当前代码所在 context 并不相同，因而无法获取 context 信息。
+
+<!-- prettier-ignore -->
+当你需要 context 信息（例如 ConfigProvider 配置的内容）时，可以通过 `Modal.useModal` 方法返回 modal 实体以及 contextHolder 节点，将其插入到你需要获取 context 位置即可。也可通过 [App 包裹组件](/components/app) 简化 useModal 等方法需要手动植入 contextHolder 的问题。
+:::
+
+### 修改主题变量
+
+通过 `theme` 中的 `token` 属性，可以修改一些主题变量。部分主题变量会引起其他主题变量的变化，我们把这些主题变量称为 Seed Token。
+
+<!-- prettier-ignore -->
+<code src="./_demo/modify-theme-token.tsx">修改主题变量</code>
+
+### 使用预设算法
+
+通过修改算法可以快速生成风格迥异的主题，我们默认提供三套预设算法，分别是:
+
+- 默认算法 `theme.defaultAlgorithm`
+- 暗色算法 `theme.darkAlgorithm`
+- 紧凑算法 `theme.compactAlgorithm`
+
+你可以通过 `theme` 中的 `algorithm` 属性来切换算法，并且支持配置多种算法，将会依次生效。
+
+<!-- prettier-ignore -->
+<code src="./_demo/preset-algorithm.tsx">使用预设算法</code>
+
+### 修改组件变量
+
+除了整体的 Design Token，各个组件也会开放自己的 Component Token 来实现针对组件的样式定制能力，不同的组件之间不会相互影响。同样地，也可以通过这种方式来覆盖组件的其他 Design Token。
+
+<!-- prettier-ignore -->
+:::info{title=组件级别的主题算法}
+默认情况下，所有组件变量都仅仅是覆盖，不会基于 Seed Token 计算派生变量。
+
+<!-- prettier-ignore -->
+在 `>= 5.8.0` 版本中，组件变量支持传入 `algorithm` 属性，可以开启派生计算或者传入其他算法。
+:::
+
+<!-- prettier-ignore -->
+<code src="./_demo/component-token.tsx">修改组件变量</code>
+
+### 禁用动画
+
+antd 默认内置了一些组件交互动效让企业级页面更加富有细节，在一些极端场景可能会影响页面交互性能，如需关闭动画可以 `token` 中的 `motion` 修改为 `false`：
+
+<!-- prettier-ignore -->
+<code src="./_demo/disable-motion.tsx">禁用动画</code>
+
+## 进阶使用
+
+### 零运行时 zeroRuntime {#zero-runtime}
+
+自 6.0.0 起，我们提供了 `zeroRuntime` 模式来进一步提升应用性能。开启后，Ant Design 将不再在运行时生成组件样式，所以需要自行引入样式文件。
+
+```tsx
+import 'antd/dist/antd.css';
+
+export default () => (
+  <ConfigProvider theme={{ zeroRuntime: true }}>
+    <App />
+  </ConfigProvider>
+);
 ```
 
-如果以上变量不能满足你的定制需求，可以给我们提 issue。
+`antd/dist/antd.css` 包含了所有 antd 组件的样式，但是不会包含 hashed className。如果你希望引入更少的样式，或者因为修改了 `prefix` 等配置无法使用默认的样式，推荐使用 [@ant-design/static-style-extract](https://github.com/ant-design/static-style-extract) 来生成静态样式。
 
-## 定制方式
+```tsx
+import fs from 'fs';
+import { extractStyle } from '@ant-design/static-style-extract';
 
-原理上是使用 less 提供的 [modifyVars](http://lesscss.org/usage/#using-less-in-the-browser-modify-variables) 的方式进行覆盖变量，可以在本地运行 [例子](https://github.com/ant-design/create-react-app-antd) 查看定制效果。下面将针对不同的场景提供一些常用的定制方式。
+const cssText = extractStyle({
+  includes: ['Button'], // 只包含 Button 组件的样式
+});
 
-### 在 webpack 中定制主题
+fs.writeFileSync('/path/to/somewhere', cssText);
+```
 
-我们以 webpack@4 为例进行说明，以下是一个 `webpack.config.js` 的典型例子，对 [less-loader](https://github.com/webpack-contrib/less-loader) 的 options 属性进行相应配置。
+### 动态切换
 
-```diff
-// webpack.config.js
-module.exports = {
-  rules: [{
-    test: /\.less$/,
-    use: [{
-      loader: 'style-loader',
-    }, {
-      loader: 'css-loader', // translates CSS into CommonJS
-    }, {
-      loader: 'less-loader', // compiles Less to CSS
-+     options: {
-+       lessOptions: { // 如果使用less-loader@5，请移除 lessOptions 这一级直接配置选项。
-+         modifyVars: {
-+           'primary-color': '#1DA57A',
-+           'link-color': '#1DA57A',
-+           'border-radius-base': '2px',
-+         },
-+         javascriptEnabled: true,
-+       },
-+     },
-    }],
-    // ...other rules
-  }],
-  // ...other config
+在 v5 中，动态切换主题对用户来说是非常简单的，你可以在任何时候通过 `ConfigProvider` 的 `theme` 属性来动态切换主题，而不需要任何额外配置。
+
+<!-- prettier-ignore -->
+<code src="./_demo/dynamic-theme.tsx">动态切换</code>
+
+### 局部主题（嵌套主题）
+
+可以嵌套使用 `ConfigProvider` 来实现局部主题的更换。在子主题中未被改变的 Design Token 将会继承父主题。
+
+<!-- prettier-ignore -->
+<code src="./_demo/local-theme.tsx">局部主题</code>
+
+### 使用 Design Token
+
+如果你希望使用当前主题下的 Design Token，我们提供了 `useToken` 这个 hook 来获取 Design Token。
+
+<!-- prettier-ignore -->
+<code src="./_demo/use-token.tsx">使用 Design Token</code>
+
+### 静态消费（如 less）
+
+当你需要非 React 生命周期消费 Token 变量时，可以通过静态方法 `getDesignToken` 将其导出：
+
+```jsx
+import { theme } from 'antd';
+
+const { getDesignToken } = theme;
+
+const globalToken = getDesignToken();
+```
+
+`getDesignToken` 和 ConfigProvider 一样，支持传入 `theme` 属性，用于获取指定主题的 Design Token。
+
+```tsx
+import type { ThemeConfig } from 'antd';
+import { theme } from 'antd';
+import { createRoot } from 'react-dom/client';
+
+const { getDesignToken, useToken } = theme;
+
+const config: ThemeConfig = {
+  token: {
+    colorPrimary: '#1890ff',
+  },
+};
+
+// 通过静态方法获取
+const globalToken = getDesignToken(config);
+
+// 通过 hook 获取
+const App = () => {
+  const { token } = useToken();
+  return null;
+};
+
+// 渲染示意
+createRoot(document.getElementById('#app')).render(
+  <ConfigProvider theme={config}>
+    <App />
+  </ConfigProvider>,
+);
+```
+
+如果需要将其应用到静态样式编译框架，如 less 可以通过 less-loader 注入：
+
+```jsx
+{
+  loader: "less-loader",
+  options: {
+    lessOptions: {
+      modifyVars: mapToken,
+    },
+  },
 }
 ```
 
-注意：
+兼容包提供了变量转换方法用于转成 v4 的 less 变量，如需使用[点击此处](https://5x.ant.design/docs/react/migration-v5-cn)查看详情。
 
-1. less-loader 的处理范围不要过滤掉 `node_modules` 下的 antd 包。
-2. `lessOptions` 的配置写法在 [less-loader@6.0.0](https://github.com/webpack-contrib/less-loader/releases/tag/v6.0.0) 里支持。
+### 调试主题
 
-### 在 Umi 里配置主题
+我们提供了帮助用户调试主题的工具：[主题编辑器](/theme-editor)
 
-如果你在使用 [Umi](https://umijs.org/zh-CN/config#theme)，那么可以很方便地在项目根目录的 `.umirc.ts` 或 [config/config.ts](https://github.com/ant-design/ant-design-pro/blob/v5/config/config.ts) 文件中 [theme](https://umijs.org/zh-CN/config#theme) 字段进行主题配置。`theme` 可以配置为一个对象或文件路径。
+你可以使用此工具自由地修改 Design Token，以达到你对主题的期望。
 
-```js
-"theme": {
-  "primary-color": "#1DA57A",
-},
-```
+## 基本概念
 
-或者 [一个 js 文件](https://github.com/ant-design/ant-design-pro/blob/b7e7983661eb5e53dc807452e9653e93e74276d4/.webpackrc.js#L18)：
+在 Design Token 中我们提供了一套更加贴合设计的三层结构，将 Design Token 拆解为 Seed Token、Map Token 和 Alias Token 三部分。这三组 Token 并不是简单的分组，而是一个三层的派生关系，由 Seed Token 派生 Map Token，再由 Map Token 派生 Alias Token。在大部分情况下，使用 Seed Token 就可以满足定制主题的需要。但如果您需要更高程度的主题定制，您需要了解 antd 中 Design Token 的生命周期。
 
-```js
-"theme": "./theme.js",
-```
+### 演变过程
 
-### 在 create-react-app 中定制主题
+![token](https://gw.alipayobjects.com/mdn/rms_08e378/afts/img/A*uF3kTrY4InUAAAAAAAAAAAAAARQnAQ)
 
-参考 [在 create-react-app 中使用](/docs/react/use-with-create-react-app) 进行配置即可。
+### 基础变量（Seed Token）
 
-### 配置 less 变量文件
+Seed Token 意味着所有设计意图的起源。比如我们可以通过改变 `colorPrimary` 来改变主题色，antd 内部的算法会自动的根据 Seed Token 计算出对应的一系列颜色并应用：
 
-另外一种方式是建立一个单独的 `less` 变量文件，引入这个文件覆盖 `antd.less` 里的变量。
-
-```css
-@import '~antd/lib/style/themes/default.less';
-@import '~antd/dist/antd.less'; // 引入官方提供的 less 样式入口文件
-@import 'your-theme-file.less'; // 用于覆盖上面定义的变量
-```
-
-注意，这种方式已经载入了所有组件的样式，不需要也无法和按需加载插件 `babel-plugin-import` 的 `style` 属性一起使用。
-
-### 动态主题色
-
-在运行时调整主题色请[参考此处](/docs/react/customize-theme-variable)。
-
-## 没有生效？
-
-注意样式必须加载 less 格式，一个常见的问题就是引入了多份样式，less 的样式被 css 的样式覆盖了。
-
-- 如果你在使用 [babel-plugin-import](https://github.com/ant-design/babel-plugin-import) 的 `style` 配置来引入样式，需要将配置值从 `'css'` 改为 `true`，这样会引入 less 文件。
-- 如果你是通过 `'antd/dist/antd.css'` 引入样式的，改为 `antd/dist/antd.less`。
-
-## 官方主题 🌈
-
-我们提供了一些官方主题，欢迎在项目中试用，并且给我们提供反馈。
-
-- 🌑 暗黑主题（4.0.0+ 支持）
-- 📦 紧凑主题（4.1.0+ 支持）
-- ☁️ [阿里云控制台主题（Beta）](https://github.com/ant-design/ant-design-aliyun-theme)
-
-### 使用暗黑主题和紧凑主题
-
-![](https://gw.alipayobjects.com/mdn/rms_08e378/afts/img/A*mYU9R4YFxscAAAAAAAAAAABkARQnAQ)
-
-方式一：使用 Umi 3
-
-如果你在使用 [Umi 3](http://umijs.org/zh-CN)：
-
-```js
-// .umirc.ts or config/config.ts
-export default {
-  antd: {
-    dark: true, // 开启暗色主题
-    compact: true, // 开启紧凑主题
+```tsx
+const theme = {
+  token: {
+    colorPrimary: '#1890ff',
   },
-},
-```
-
-方式二：是在样式文件全量引入 [antd.dark.less](https://unpkg.com/browse/antd@4.x/dist/antd.dark.less) 或 [antd.compact.less](https://unpkg.com/browse/antd@4.x/dist/antd.compact.less)。
-
-```less
-@import '~antd/dist/antd.dark.less'; // 引入官方提供的暗色 less 样式入口文件
-@import '~antd/dist/antd.compact.less'; // 引入官方提供的紧凑 less 样式入口文件
-```
-
-如果项目不使用 Less，可在 CSS 文件中全量引入 [antd.dark.css](https://unpkg.com/browse/antd@4.x/dist/antd.dark.css) 或 [antd.compact.css](https://unpkg.com/browse/antd@4.x/dist/antd.compact.css)。
-
-```css
-@import '~antd/dist/antd.dark.css';
-@import '~antd/dist/antd.compact.css';
-```
-
-> 注意这种方式下你不需要再引入 `antd/dist/antd.less` 或 `antd/dist/antd.css` 了，可以安全移除掉。也不需要开启 babel-plugin-import 的 `style` 配置。通过此方式不能同时配置两种及以上主题。
-
-方式三：是用在 `webpack.config.js` 使用 [less-loader](https://github.com/webpack-contrib/less-loader) 按需引入：
-
-```diff
-const { getThemeVariables } = require('antd/dist/theme');
-
-// webpack.config.js
-module.exports = {
-  rules: [{
-    test: /\.less$/,
-    use: [{
-      loader: 'style-loader',
-    }, {
-      loader: 'css-loader', // translates CSS into CommonJS
-    }, {
-      loader: 'less-loader', // compiles Less to CSS
-+     options: {
-+       lessOptions: { // 如果使用less-loader@5，请移除 lessOptions 这一级直接配置选项。
-+         modifyVars: getThemeVariables({
-+           dark: true, // 开启暗黑模式
-+           compact: true, // 开启紧凑模式
-+         }),
-+         javascriptEnabled: true,
-+       },
-+     },
-    }],
-  }],
 };
 ```
 
-## 社区教程
+### 梯度变量（Map Token）
 
-- [Using Ant Design in Sass-Styled Webpack Projects with `antd-scss-theme-plugin`](https://intoli.com/blog/antd-scss-theme-plugin/)
-- [How to Customize Ant Design with React & Webpack… the Missing Guide](https://medium.com/@GeoffMiller/how-to-customize-ant-design-with-react-webpack-the-missing-guide-c6430f2db10f)
-- [Theming Ant Design with Sass and Webpack](https://gist.github.com/Kruemelkatze/057f01b8e15216ae707dc7e6c9061ef7)
-- [Using Sass/Scss with React App (create-react-app)](https://medium.com/@mzohaib.qc/using-sass-scss-with-react-app-create-react-app-d03072083ef8)
-- [Dynamic Theming in Browser using Ant Design](https://medium.com/@mzohaib.qc/ant-design-dynamic-runtime-theme-1f9a1a030ba0)
-- [Zero config custom theme generator](https://www.npmjs.com/package/@emeks/antd-custom-theme-generator)
+Map Token 是基于 Seed 派生的梯度变量。定制 Map Token 推荐通过 `theme.algorithm` 来实现，这样可以保证 Map Token 之间的梯度关系。也可以通过 `theme.token` 覆盖，用于单独修改一些 map token 的值。
+
+```tsx
+const theme = {
+  token: {
+    colorPrimaryBg: '#e6f7ff',
+  },
+};
+```
+
+### 别名变量（Alias Token）
+
+Alias Token 用于批量控制某些共性组件的样式，基本上是 Map Token 别名，或者特殊处理过的 Map Token。
+
+```tsx
+const theme = {
+  token: {
+    colorLink: '#1890ff',
+  },
+};
+```
+
+### 基本算法（algorithm)
+
+基本算法用于将 Seed Token 展开为 Map Token，比如由一个基本色算出一个梯度色板，或者由一个基本的圆角算出各种大小的圆角。算法可以单独使用，也可以任意地组合使用，比如可以将暗色算法和紧凑算法组合使用，得到一个暗色和紧凑相结合的主题。
+
+```tsx
+import { theme } from 'antd';
+
+const { darkAlgorithm, compactAlgorithm } = theme;
+
+const theme = {
+  algorithm: [darkAlgorithm, compactAlgorithm],
+};
+```
+
+## API
+
+### Theme
+
+| 属性 | 说明 | 类型 | 默认值 | 版本 |
+| --- | --- | --- | --- | --- |
+| token | 用于修改 Design Token | `AliasToken` | - |  |
+| inherit | 继承上层 ConfigProvider 中配置的主题。 | boolean | true |  |
+| algorithm | 用于修改 Seed Token 到 Map Token 的算法 | `(token: SeedToken) => MapToken` \| `((token: SeedToken) => MapToken)[]` | `defaultAlgorithm` |  |
+| components | 用于修改各个组件的 Component Token 以及覆盖该组件消费的 Alias Token | `ComponentsConfig` | - |  |
+| cssVar | CSS 变量配置 | [cssVar](#css-var) | - |  |
+| hashed | 将样式添加至 hash className 上 | boolean | true |  |
+| zeroRuntime | 开启零运行时模式，不会在运行时产生样式，需要手动引入 CSS 文件 | boolean | false | 6.0.0 |
+
+### ComponentsConfig
+
+| 属性 | 说明 | 类型 | 默认值 |
+| --- | --- | --- | --- |
+| `Component` (可以是任意 antd 组件名，如 `Button`) | 用于修改 Component Token 以及覆盖该组件消费的 Alias Token | `ComponentToken & AliasToken & { algorithm: boolean \| (token: SeedToken) => MapToken` \| `((token: SeedToken) => MapToken)[]}` | - |
+
+> 组件级别的 `algorithm` 默认为 `false`，此时组件 Token 仅仅会覆盖该组件使用的 token，不会进行派生计算。设置为 `true` 时会继承当前全局算法；也可以和全局的 `algorithm` 一样传入一个或多个算法，这将会针对该组件覆盖全局的算法。
+
+### cssVar {#css-var}
+
+| 属性 | 说明 | 类型 | 默认值 | 版本 |
+| --- | --- | --- | --- | --- |
+| prefix | CSS 变量的前缀，默认与 ConfigProvider 上配置的 `prefixCls` 相同 | string | `ant` |  |
+| key | 当前主题的唯一识别 key，默认用 `useId` 填充 | string | `useId` in React 18 |  |
+
+### SeedToken
+
+<TokenTable type="seed"></TokenTable>
+
+### MapToken
+
+> 继承所有 SeedToken 的属性
+
+<TokenTable type="map"></TokenTable>
+
+### AliasToken
+
+> 继承所有 SeedToken 和 MapToken 的属性
+
+<TokenTable type="alias"></TokenTable>
+
+## FAQ
+
+### 为什么 `theme` 从 `undefined` 变为对象或者变为 `undefined` 时组件重新 mount 了？
+
+在 ConfigProvider 中我们通过 `DesignTokenContext` 传递 context，`theme` 为 `undefined` 时不会套一层 Provider，所以从无到有或者从有到无时 React 的 VirtualDOM 结构变化，导致组件重新 mount。解决方法：将 `undefined` 替换为空对象 `{}` 即可。

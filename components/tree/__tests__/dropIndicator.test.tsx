@@ -1,4 +1,4 @@
-import { mount } from 'enzyme';
+import { render } from '../../../tests/utils';
 import dropIndicatorRender, { offset } from '../utils/dropIndicator';
 
 describe('dropIndicatorRender', () => {
@@ -10,8 +10,8 @@ describe('dropIndicatorRender', () => {
       prefixCls: 'ant',
       direction: 'ltr',
     });
-    const wrapper = mount(indicator);
-    expect(wrapper.props().style.bottom).toEqual(-3);
+    const { container } = render(indicator);
+    expect(container.querySelector<HTMLDivElement>('div')).toHaveStyle({ bottom: '-3px' });
   });
   it('work with dropPosition inner (-0)', () => {
     const indicator = dropIndicatorRender({
@@ -21,9 +21,11 @@ describe('dropIndicatorRender', () => {
       prefixCls: 'ant',
       direction: 'ltr',
     });
-    const wrapper = mount(indicator);
-    expect(wrapper.props().style.bottom).toEqual(-3);
-    expect(wrapper.props().style.left).toEqual(24 + offset);
+    const { container } = render(indicator);
+    expect(container.querySelector<HTMLDivElement>('div')).toHaveStyle({
+      bottom: '-3px',
+      left: `${24 + offset}px`,
+    });
   });
   it('work with dropPosition after (-1)', () => {
     const indicator = dropIndicatorRender({
@@ -33,8 +35,8 @@ describe('dropIndicatorRender', () => {
       prefixCls: 'ant',
       direction: 'ltr',
     });
-    const wrapper = mount(indicator);
-    expect(wrapper.props().style.top).toEqual(-3);
+    const { container } = render(indicator);
+    expect(container.querySelector<HTMLDivElement>('div')).toHaveStyle({ top: '-3px' });
   });
   it('work with drop level', () => {
     const indicator = dropIndicatorRender({
@@ -44,8 +46,10 @@ describe('dropIndicatorRender', () => {
       prefixCls: 'ant',
       direction: 'ltr',
     });
-    const wrapper = mount(indicator);
-    expect(wrapper.props().style.left).toEqual(-2 * 24 + offset);
+    const { container } = render(indicator);
+    expect(container.querySelector<HTMLDivElement>('div')).toHaveStyle({
+      left: `${-2 * 24 + offset}px`,
+    });
   });
   it('work with drop level (rtl)', () => {
     const indicator = dropIndicatorRender({
@@ -55,7 +59,9 @@ describe('dropIndicatorRender', () => {
       prefixCls: 'ant',
       direction: 'rtl',
     });
-    const wrapper = mount(indicator);
-    expect(wrapper.props().style.right).toEqual(-2 * 24 + offset);
+    const { container } = render(indicator);
+    expect(container.querySelector<HTMLDivElement>('div')).toHaveStyle({
+      right: `${-2 * 24 + offset}px`,
+    });
   });
 });

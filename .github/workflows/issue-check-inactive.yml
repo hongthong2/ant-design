@@ -4,13 +4,19 @@ on:
   schedule:
     - cron: "0 0 */15 * *"
 
+permissions:
+  contents: read
+
 jobs:
   issue-check-inactive:
+    permissions:
+      issues: write  # for actions-cool/issues-helper to update issues
+      pull-requests: write  # for actions-cool/issues-helper to update PRs
     runs-on: ubuntu-latest
     steps:
       - name: check-inactive
-        uses: actions-cool/issues-helper@v2
+        uses: actions-cool/issues-helper-backup@d65454423c6fbbd20026b9b499d403f79422ac69
         with:
-          actions: 'check-inactive'
-          inactive-label: 'Inactive'
+          actions: check-inactive
+          inactive-label: Inactive
           inactive-day: 30

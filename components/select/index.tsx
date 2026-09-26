@@ -1,20 +1,55 @@
 // TODO: 4.0 - codemod should help to change `filterOption` to support node props.
-
 import * as React from 'react';
-import omit from 'rc-util/lib/omit';
-import classNames from 'classnames';
-import RcSelect, { Option, OptGroup, SelectProps as RcSelectProps } from 'rc-select';
-import { OptionProps } from 'rc-select/lib/Option';
-import { ConfigContext } from '../config-provider';
-import getIcons from './utils/iconUtil';
-import SizeContext, { SizeType } from '../config-provider/SizeContext';
+import type {
+  BaseOptionType,
+  BaseSelectRef,
+  DefaultOptionType,
+  OptionProps,
+  SelectProps as RcSelectProps,
+  SearchConfig,
+} from '@rc-component/select';
+import RcSelect, { OptGroup, Option } from '@rc-component/select';
+import { omit } from '@rc-component/util';
+import { clsx } from 'clsx';
+
+import { useZIndex } from '../_util/hooks';
+import { useMergeSemantic, useSemanticRootStyle } from '../_util/hooks/useMergeSemantic';
+import type { GenerateSemantic } from '../_util/hooks/useMergeSemantic/semanticType';
+import type { SelectCommonPlacement } from '../_util/motion';
 import { getTransitionName } from '../_util/motion';
+import normalizeIcon from '../_util/normalizeIcon';
+import genPurePanel from '../_util/PurePanel';
+import type { InputStatus } from '../_util/statusUtils';
+import { getMergedStatus, getStatusClassNames } from '../_util/statusUtils';
+import { devUseWarning } from '../_util/warning';
+import { ConfigContext } from '../config-provider';
+import type { Variant } from '../config-provider';
+import { useComponentConfig } from '../config-provider/context';
+import DefaultRenderEmpty from '../config-provider/defaultRenderEmpty';
+import DisabledContext from '../config-provider/DisabledContext';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
+import useSize from '../config-provider/hooks/useSize';
+import type { SizeType } from '../config-provider/SizeContext';
+import { FormItemInputContext } from '../form/context';
+import useVariants from '../form/hooks/useVariants';
+import { useCompactItemContext } from '../space/Compact';
+import { useToken } from '../theme/internal';
+import mergedBuiltinPlacements from './mergedBuiltinPlacements';
+import useStyle from './style';
+import useIcons from './useIcons';
+import usePopupRender from './usePopupRender';
+import useShowArrow from './useShowArrow';
 
 type RawValue = string | number;
 
-export { OptionProps };
-
-export type OptionType = typeof Option;
+export type {
+  BaseOptionType,
+  DefaultOptionType,
+  /** @deprecated Please use `GetProps<typeof Select.Option>` instead. */
+  OptionProps,
+  BaseSelectRef as RefSelectProps,
+  SearchConfig,
+};
 
 export interface LabeledValue {
   key?: string;
@@ -22,62 +57,205 @@ export interface LabeledValue {
   label: React.ReactNode;
 }
 
+export type SelectSemanticType = {
+  classNames?: {
+    root?: string;
+    prefix?: string;
+    suffix?: string;
+    input?: string;
+    placeholder?: string;
+    content?: string;
+    item?: string;
+    itemContent?: string;
+    itemRemove?: string;
+    clear?: string;
+    popup?: {
+      root?: string;
+      listItem?: string;
+      list?: string;
+    };
+  };
+  styles?: {
+    root?: React.CSSProperties;
+    prefix?: React.CSSProperties;
+    suffix?: React.CSSProperties;
+    input?: React.CSSProperties;
+    placeholder?: React.CSSProperties;
+    content?: React.CSSProperties;
+    item?: React.CSSProperties;
+    itemContent?: React.CSSProperties;
+    itemRemove?: React.CSSProperties;
+    clear?: React.CSSProperties;
+    popup?: {
+      root?: React.CSSProperties;
+      listItem?: React.CSSProperties;
+      list?: React.CSSProperties;
+    };
+  };
+};
+
+export type SelectSemanticAllType = GenerateSemantic<SelectSemanticType, SelectProps>;
+
 export type SelectValue = RawValue | RawValue[] | LabeledValue | LabeledValue[] | undefined;
 
-export interface InternalSelectProps<VT> extends Omit<RcSelectProps<VT>, 'mode'> {
+export interface InternalSelectProps<
+  ValueType = any,
+  OptionType extends BaseOptionType | DefaultOptionType = DefaultOptionType,
+> extends Omit<
+    RcSelectProps<ValueType, OptionType>,
+    'mode' | 'styles' | 'classNames' | 'onPopupVisibleChange' | 'popupRender'
+  > {
+  rootClassName?: string;
+  prefix?: React.ReactNode;
   suffixIcon?: React.ReactNode;
   size?: SizeType;
-  mode?: 'multiple' | 'tags' | 'SECRET_COMBOBOX_MODE_DO_NOT_USE';
+  disabled?: boolean;
+  mode?: 'multiple' | 'tags' | 'SECRET_COMBOBOX_MODE_DO_NOT_USE' | 'combobox';
+  /** @deprecated Use `variant` instead. */
   bordered?: boolean;
+  /**
+   * @deprecated `showArrow` is deprecated which will be removed in next major version. It will be a
+   *   default behavior, you can hide it by setting `suffixIcon` to null.
+   */
+  showArrow?: boolean;
+  /**
+   * @since 5.13.0
+   * @default "outlined"
+   */
+  variant?: Variant;
+  classNames?: SelectSemanticAllType['classNamesAndFn'];
+  styles?: SelectSemanticAllType['stylesAndFn'];
+  loadingIcon?: React.ReactNode;
+  showSearch?: boolean | (SearchConfig<OptionType> & { searchIcon?: React.ReactNode });
+  popupRender?: (menu: React.ReactElement) => React.ReactNode;
 }
 
-export interface SelectProps<VT>
-  extends Omit<
-    InternalSelectProps<VT>,
-    'inputIcon' | 'mode' | 'getInputElement' | 'getRawInputElement' | 'backfill'
-  > {
+export interface SelectProps<
+  ValueType = any,
+  OptionType extends BaseOptionType | DefaultOptionType = DefaultOptionType,
+> extends Omit<
+  InternalSelectProps<ValueType, OptionType>,
+  | 'mode'
+  | 'getInputElement'
+  | 'getRawInputElement'
+  | 'backfill'
+  | 'placement'
+  | 'dropdownClassName'
+  | 'dropdownStyle'
+> {
+  placement?: SelectCommonPlacement;
   mode?: 'multiple' | 'tags';
-}
-
-export interface RefSelectProps {
-  focus: () => void;
-  blur: () => void;
+  status?: InputStatus;
+  /** @deprecated Please use `classNames.popup.root` instead */
+  popupClassName?: string;
+  /** @deprecated Please use `classNames.popup.root` instead */
+  dropdownClassName?: string;
+  /** @deprecated Please use `styles.popup` instead */
+  dropdownStyle?: React.CSSProperties;
+  /** @deprecated Please use `popupRender` instead */
+  dropdownRender?: SelectProps['popupRender'];
+  /** @deprecated Please use `onOpenChange` instead */
+  onDropdownVisibleChange?: RcSelectProps<ValueType, OptionType>['onPopupVisibleChange'];
+  /** @deprecated Please use `popupMatchSelectWidth` instead */
+  dropdownMatchSelectWidth?: boolean | number;
+  popupMatchSelectWidth?: boolean | number;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const SECRET_COMBOBOX_MODE_DO_NOT_USE = 'SECRET_COMBOBOX_MODE_DO_NOT_USE';
 
-const InternalSelect = <VT extends SelectValue = SelectValue>(
-  {
+const InternalSelect = <
+  ValueType = any,
+  OptionType extends BaseOptionType | DefaultOptionType = DefaultOptionType,
+>(
+  props: SelectProps<ValueType, OptionType>,
+  ref: React.Ref<BaseSelectRef>,
+) => {
+  const {
     prefixCls: customizePrefixCls,
-    bordered = true,
+    bordered,
     className,
+    rootClassName,
     getPopupContainer,
+    popupClassName,
     dropdownClassName,
     listHeight = 256,
-    listItemHeight = 24,
+    placement,
+    listItemHeight: customListItemHeight,
     size: customizeSize,
+    disabled: customDisabled,
     notFoundContent,
-    ...props
-  }: SelectProps<VT>,
-  ref: React.Ref<RefSelectProps>,
-) => {
+    status: customStatus,
+    builtinPlacements,
+    dropdownMatchSelectWidth,
+    popupMatchSelectWidth,
+    direction: propDirection,
+    style,
+    allowClear,
+    variant: customizeVariant,
+    popupStyle,
+    dropdownStyle,
+    transitionName,
+    tagRender,
+    maxCount,
+    prefix,
+    dropdownRender,
+    /**
+     * @since 5.25.0
+     */
+    popupRender,
+    onDropdownVisibleChange,
+    onOpenChange,
+    styles,
+    classNames,
+    clearIcon,
+    showSearch,
+    ...rest
+  } = props;
+
   const {
     getPopupContainer: getContextPopupContainer,
     getPrefixCls,
     renderEmpty,
-    direction,
+    direction: contextDirection,
     virtual,
-    dropdownMatchSelectWidth,
+    popupMatchSelectWidth: contextPopupMatchSelectWidth,
+    popupOverflow,
   } = React.useContext(ConfigContext);
-  const size = React.useContext(SizeContext);
+
+  const {
+    showSearch: contextShowSearch,
+    allowClear: contextAllowClear,
+    style: contextStyle,
+    styles: contextStyles,
+    className: contextClassName,
+    classNames: contextClassNames,
+    clearIcon: contextClearIcon,
+    loadingIcon: contextLoadingIcon,
+    menuItemSelectedIcon: contextMenuItemSelectedIcon,
+    removeIcon: contextRemoveIcon,
+    suffixIcon: contextSuffixIcon,
+  } = useComponentConfig('select');
+
+  const [, token] = useToken();
+
+  const listItemHeight = customListItemHeight ?? token?.controlHeight;
 
   const prefixCls = getPrefixCls('select', customizePrefixCls);
   const rootPrefixCls = getPrefixCls();
+  const direction = propDirection ?? contextDirection;
+
+  const { compactSize, compactItemClassnames } = useCompactItemContext(prefixCls, direction);
+
+  const [variant, enableVariantCls] = useVariants('select', customizeVariant, bordered);
+
+  const rootCls = useCSSVarCls(prefixCls);
+  const [hashId, cssVarCls] = useStyle(prefixCls, rootCls);
 
   const mode = React.useMemo(() => {
-    const { mode: m } = props as InternalSelectProps<VT>;
+    const { mode: m } = props as InternalSelectProps<OptionType>;
 
-    if ((m as any) === 'combobox') {
+    if (m === 'combobox') {
       return undefined;
     }
 
@@ -90,6 +268,24 @@ const InternalSelect = <VT extends SelectValue = SelectValue>(
 
   const isMultiple = mode === 'multiple' || mode === 'tags';
 
+  const showSuffixIcon = useShowArrow(props.suffixIcon, props.showArrow);
+
+  const mergedPopupMatchSelectWidth =
+    popupMatchSelectWidth ?? dropdownMatchSelectWidth ?? contextPopupMatchSelectWidth;
+
+  const mergedPopupRender = usePopupRender(popupRender || dropdownRender);
+
+  const mergedOnOpenChange = onOpenChange || onDropdownVisibleChange;
+
+  // ===================== Form Status =====================
+  const {
+    status: contextStatus,
+    hasFeedback,
+    isFormItemInput,
+    feedbackIcon,
+  } = React.useContext(FormItemInputContext);
+  const mergedStatus = getMergedStatus(contextStatus, customStatus);
+
   // ===================== Empty =====================
   let mergedNotFound: React.ReactNode;
   if (notFoundContent !== undefined) {
@@ -97,73 +293,226 @@ const InternalSelect = <VT extends SelectValue = SelectValue>(
   } else if (mode === 'combobox') {
     mergedNotFound = null;
   } else {
-    mergedNotFound = renderEmpty('Select');
+    mergedNotFound = renderEmpty?.('Select') || <DefaultRenderEmpty componentName="Select" />;
   }
 
   // ===================== Icons =====================
-  const { suffixIcon, itemIcon, removeIcon, clearIcon } = getIcons({
-    ...props,
+  const {
+    suffixIcon,
+    itemIcon,
+    removeIcon,
+    clearIcon: mergedClearIcon,
+  } = useIcons({
+    ...rest,
     multiple: isMultiple,
+    hasFeedback,
+    feedbackIcon,
+    showSuffixIcon,
     prefixCls,
+    componentName: 'Select',
+    clearIcon,
+    searchIcon: normalizeIcon(showSearch, 'searchIcon'),
+    contextClearIcon,
+    contextLoadingIcon,
+    contextMenuItemSelectedIcon,
+    contextRemoveIcon,
+    contextSearchIcon: normalizeIcon(contextShowSearch, 'searchIcon'),
+    contextSuffixIcon,
   });
 
-  const selectProps = omit(props as typeof props & { itemIcon: any }, ['suffixIcon', 'itemIcon']);
+  const finalAllowClear = allowClear ?? contextAllowClear;
+  const mergedAllowClear =
+    finalAllowClear === true ? { clearIcon: mergedClearIcon } : finalAllowClear;
+  const mergedShowSearch = showSearch ?? contextShowSearch;
 
-  const rcSelectRtlDropDownClassName = classNames(dropdownClassName, {
-    [`${prefixCls}-dropdown-${direction}`]: direction === 'rtl',
-  });
+  const selectProps = omit(rest, ['suffixIcon', 'itemIcon' as any]);
 
-  const mergedSize = customizeSize || size;
-  const mergedClassName = classNames(
+  const mergedSize = useSize((ctx) => customizeSize ?? compactSize ?? ctx);
+
+  // ===================== Disabled =====================
+  const disabled = React.useContext(DisabledContext);
+  const mergedDisabled = customDisabled ?? disabled;
+
+  // ========== Merged Props for Semantic ==================
+  const mergedProps: SelectProps<any, OptionType> = {
+    ...props,
+    variant,
+    status: mergedStatus,
+    disabled: mergedDisabled,
+    size: mergedSize,
+  };
+
+  const contextStyleRoot = useSemanticRootStyle(contextStyle);
+  const styleRoot = useSemanticRootStyle(style);
+
+  const [mergedClassNames, mergedStyles] = useMergeSemantic<
+    SelectSemanticAllType['classNames'],
+    SelectSemanticAllType['styles'],
+    SelectProps
+  >(
+    [contextClassNames, classNames],
+    [contextStyles, contextStyleRoot, styles, styleRoot],
+    {
+      props: mergedProps as unknown as SelectProps,
+    },
+    {
+      popup: {
+        _default: 'root',
+      },
+    },
+  );
+
+  const mergedPopupClassName = clsx(
+    mergedClassNames.popup.root,
+    popupClassName,
+    dropdownClassName,
+    {
+      [`${prefixCls}-dropdown-${direction}`]: direction === 'rtl',
+    },
+    rootClassName,
+    cssVarCls,
+    rootCls,
+    hashId,
+  );
+
+  const mergedPopupStyle: React.CSSProperties = {
+    ...mergedStyles.popup?.root,
+    ...(popupStyle ?? dropdownStyle),
+  };
+
+  const mergedClassName = clsx(
     {
       [`${prefixCls}-lg`]: mergedSize === 'large',
       [`${prefixCls}-sm`]: mergedSize === 'small',
       [`${prefixCls}-rtl`]: direction === 'rtl',
-      [`${prefixCls}-borderless`]: !bordered,
+      [`${prefixCls}-${variant}`]: enableVariantCls,
+      [`${prefixCls}-in-form-item`]: isFormItemInput,
     },
+    getStatusClassNames(prefixCls, mergedStatus, hasFeedback),
+    compactItemClassnames,
+    contextClassName,
     className,
+    mergedClassNames.root,
+    rootClassName,
+    cssVarCls,
+    rootCls,
+    hashId,
   );
 
+  // ===================== Placement =====================
+  const memoPlacement = React.useMemo<SelectCommonPlacement>(() => {
+    if (placement !== undefined) {
+      return placement;
+    }
+    return direction === 'rtl' ? 'bottomRight' : 'bottomLeft';
+  }, [placement, direction]);
+
+  // ====================== Warning ======================
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Select');
+
+    const deprecatedProps = {
+      dropdownMatchSelectWidth: 'popupMatchSelectWidth',
+      dropdownStyle: 'styles.popup.root',
+      dropdownClassName: 'classNames.popup.root',
+      popupClassName: 'classNames.popup.root',
+      dropdownRender: 'popupRender',
+      onDropdownVisibleChange: 'onOpenChange',
+      bordered: 'variant',
+    };
+
+    Object.entries(deprecatedProps).forEach(([oldProp, newProp]) => {
+      warning.deprecated(!(oldProp in props), oldProp, newProp);
+    });
+
+    warning(
+      !('showArrow' in props),
+      'deprecated',
+      '`showArrow` is deprecated which will be removed in next major version. It will be a default behavior, you can hide it by setting `suffixIcon` to null.',
+    );
+
+    warning(
+      !(typeof maxCount !== 'undefined' && !isMultiple),
+      'usage',
+      '`maxCount` only works with mode `multiple` or `tags`',
+    );
+  }
+
+  // ====================== zIndex =========================
+  const [zIndex] = useZIndex(
+    'SelectLike',
+    (mergedStyles.popup.root?.zIndex as number) ?? (mergedPopupStyle.zIndex as number),
+  );
+
+  // ====================== Render =======================
   return (
-    <RcSelect<VT>
-      ref={ref as any}
+    <RcSelect<ValueType, OptionType>
+      ref={ref}
       virtual={virtual}
-      dropdownMatchSelectWidth={dropdownMatchSelectWidth}
+      classNames={mergedClassNames}
+      styles={mergedStyles}
+      showSearch={mergedShowSearch}
       {...selectProps}
-      transitionName={getTransitionName(rootPrefixCls, 'slide-up', props.transitionName)}
+      style={mergedStyles.root}
+      popupMatchSelectWidth={mergedPopupMatchSelectWidth}
+      transitionName={getTransitionName(rootPrefixCls, 'slide-up', transitionName)}
+      builtinPlacements={mergedBuiltinPlacements(builtinPlacements, popupOverflow)}
       listHeight={listHeight}
       listItemHeight={listItemHeight}
       mode={mode}
       prefixCls={prefixCls}
+      placement={memoPlacement}
       direction={direction}
-      inputIcon={suffixIcon}
+      prefix={prefix}
+      suffixIcon={suffixIcon}
       menuItemSelectedIcon={itemIcon}
       removeIcon={removeIcon}
-      clearIcon={clearIcon}
+      allowClear={mergedAllowClear}
       notFoundContent={mergedNotFound}
       className={mergedClassName}
       getPopupContainer={getPopupContainer || getContextPopupContainer}
-      dropdownClassName={rcSelectRtlDropDownClassName}
+      popupClassName={mergedPopupClassName}
+      disabled={mergedDisabled}
+      popupStyle={{ ...mergedStyles.popup.root, ...mergedPopupStyle, zIndex }}
+      maxCount={isMultiple ? maxCount : undefined}
+      tagRender={isMultiple ? tagRender : undefined}
+      popupRender={mergedPopupRender}
+      onPopupVisibleChange={mergedOnOpenChange}
     />
   );
 };
 
-const SelectRef = React.forwardRef(InternalSelect) as <VT extends SelectValue = SelectValue>(
-  props: SelectProps<VT> & { ref?: React.Ref<RefSelectProps> },
-) => React.ReactElement;
-
-type InternalSelectType = typeof SelectRef;
-
-interface SelectInterface extends InternalSelectType {
-  SECRET_COMBOBOX_MODE_DO_NOT_USE: string;
-  Option: typeof Option;
-  OptGroup: typeof OptGroup;
+if (process.env.NODE_ENV !== 'production') {
+  InternalSelect.displayName = 'Select';
 }
 
-const Select = SelectRef as SelectInterface;
+const Select = React.forwardRef(InternalSelect) as unknown as (<
+  ValueType = any,
+  OptionType extends BaseOptionType | DefaultOptionType = DefaultOptionType,
+>(
+  props: React.PropsWithChildren<SelectProps<ValueType, OptionType>> &
+    React.RefAttributes<BaseSelectRef>,
+) => React.ReactElement) & {
+  displayName?: string;
+  SECRET_COMBOBOX_MODE_DO_NOT_USE: string;
+  /** @deprecated Please use `options` instead. */
+  Option: typeof Option;
+  /** @deprecated Please use `options` instead. */
+  OptGroup: typeof OptGroup;
+  _InternalPanelDoNotUseOrYouWillBeFired: typeof PurePanel;
+};
+
+// We don't care debug panel
+/* istanbul ignore next */
+const PurePanel = genPurePanel(Select, 'popupAlign');
 
 Select.SECRET_COMBOBOX_MODE_DO_NOT_USE = SECRET_COMBOBOX_MODE_DO_NOT_USE;
 Select.Option = Option;
 Select.OptGroup = OptGroup;
+Select._InternalPanelDoNotUseOrYouWillBeFired = PurePanel;
+
+if (process.env.NODE_ENV !== 'production') {
+  Select.displayName = 'Select';
+}
 
 export default Select;

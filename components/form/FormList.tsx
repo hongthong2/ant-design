@@ -1,14 +1,15 @@
 import * as React from 'react';
-import { List } from 'rc-field-form';
-import { ValidatorRule, StoreValue } from 'rc-field-form/lib/interface';
-import devWarning from '../_util/devWarning';
+import { List } from '@rc-component/form';
+import type { StoreValue, ValidatorRule } from '@rc-component/form';
+
+import { isNumber } from '../_util/is';
+import { useDevWarning } from '../_util/warning';
 import { ConfigContext } from '../config-provider';
 import { FormItemPrefixContext } from './context';
 
 export interface FormListFieldData {
   name: number;
   key: number;
-  fieldKey: number;
 }
 
 export interface FormListOperation {
@@ -34,17 +35,32 @@ const FormList: React.FC<FormListProps> = ({
   children,
   ...props
 }) => {
-  devWarning(!!props.name, 'Form.List', 'Miss `name` prop.');
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = useDevWarning('Form.List');
+
+    warning(
+      isNumber(props.name) || (Array.isArray(props.name) ? !!props.name.length : !!props.name),
+      'usage',
+      'Miss `name` prop.',
+    );
+  }
 
   const { getPrefixCls } = React.useContext(ConfigContext);
   const prefixCls = getPrefixCls('form', customizePrefixCls);
+  const contextValue = React.useMemo(
+    () => ({
+      prefixCls,
+      status: 'error' as const,
+    }),
+    [prefixCls],
+  );
 
   return (
     <List {...props}>
       {(fields, operation, meta) => (
-        <FormItemPrefixContext.Provider value={{ prefixCls, status: 'error' }}>
+        <FormItemPrefixContext.Provider value={contextValue}>
           {children(
-            fields.map(field => ({ ...field, fieldKey: field.key })),
+            fields.map((field) => ({ ...field, fieldKey: field.key })),
             operation,
             {
               errors: meta.errors,

@@ -1,18 +1,46 @@
-import Tree from './Tree';
+import type RcTree from '@rc-component/tree';
+import type {
+  BasicDataNode,
+  DataNode,
+  EventDataNode,
+  TreeInstance,
+  UseTreeConfig,
+} from '@rc-component/tree';
+import { TreeNode, useTree } from '@rc-component/tree';
 
-export { EventDataNode, DataNode } from 'rc-tree/lib/interface';
+import DirectoryTree from './DirectoryTree';
+import type { TreeProps } from './Tree';
+import TreePure from './Tree';
 
-export {
-  TreeProps,
-  AntTreeNode,
-  AntTreeNodeMouseEvent,
-  AntTreeNodeExpandedEvent,
-  AntTreeNodeCheckedEvent,
-  AntTreeNodeSelectedEvent,
+export type {
+  ExpandAction as DirectoryTreeExpandAction,
+  DirectoryTreeProps,
+} from './DirectoryTree';
+
+export type {
   AntdTreeNodeAttribute,
+  AntTreeNode,
+  AntTreeNodeCheckedEvent,
+  AntTreeNodeExpandedEvent,
+  AntTreeNodeMouseEvent,
   AntTreeNodeProps,
+  AntTreeNodeSelectedEvent,
+  TreeProps,
 } from './Tree';
 
-export { ExpandAction as DirectoryTreeExpandAction, DirectoryTreeProps } from './DirectoryTree';
+export type { BasicDataNode, DataNode, EventDataNode, TreeInstance, UseTreeConfig };
+
+type CompoundedComponent = (<T extends BasicDataNode | DataNode = DataNode>(
+  props: React.PropsWithChildren<TreeProps<T>> & React.RefAttributes<RcTree>,
+) => React.ReactElement) & {
+  TreeNode: typeof TreeNode;
+  DirectoryTree: typeof DirectoryTree;
+  useTree: typeof useTree;
+};
+
+const Tree = TreePure as unknown as CompoundedComponent;
+Tree.DirectoryTree = DirectoryTree;
+Tree.TreeNode = TreeNode;
+Tree.useTree = useTree;
 
 export default Tree;

@@ -1,48 +1,7 @@
----
-order: 3
-title:
-  zh-CN: 渐进加载
-  en-US: Progressive Loading
----
-
 ## zh-CN
 
-大图使用 placeholder 渐进加载。
+通过 `placeholder` 属性设置占位符。当 `placeholder` 为 `{ progress: true }` 时显示水彩墨水加载动画；设置为 `{ progress: { percent: number } }` 时显示进度条；也可以传入自定义 React 节点作为占位符。
 
 ## en-US
 
-Progressive when large image loading.
-
-```jsx
-import React from 'react';
-import { Image, Button, Space } from 'antd';
-
-function ImageDemo() {
-  const [random, setRandom] = React.useState();
-  return (
-    <Space size={12}>
-      <Image
-        width={200}
-        src={`https://zos.alipayobjects.com/rmsportal/jkjgkEfvpUPVyRjUImniVslZfWPnJuuZ.png?${random}`}
-        placeholder={
-          <Image
-            preview={false}
-            src="https://zos.alipayobjects.com/rmsportal/jkjgkEfvpUPVyRjUImniVslZfWPnJuuZ.png?x-oss-process=image/blur,r_50,s_50/quality,q_1/resize,m_mfit,h_200,w_200"
-            width={200}
-          />
-        }
-      />
-      <Button
-        type="primary"
-        onClick={() => {
-          setRandom(Date.now());
-        }}
-      >
-        Reload
-      </Button>
-    </Space>
-  );
-}
-
-ReactDOM.render(<ImageDemo />, mountNode);
-```
+Set placeholder via `placeholder` prop. When `placeholder` is `{ progress: true }`, it shows a watercolor ink loading animation; when set to `{ progress: { percent: number } }`, it shows a progress bar; you can also pass a custom React node as placeholder.

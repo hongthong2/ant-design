@@ -1,9 +1,10 @@
-import * as React from 'react';
-import classNames from 'classnames';
+import React from 'react';
+import { isReactRenderable } from '@rc-component/util';
+import { clsx } from 'clsx';
 
-function notEmpty(val: any) {
-  return val !== undefined && val !== null;
-}
+import { useMergeSemantic } from '../_util/hooks/useMergeSemantic';
+import type { CellSemanticType } from './DescriptionsContext';
+import DescriptionsContext from './DescriptionsContext';
 
 export interface CellProps {
   itemPrefixCls: string;
@@ -11,67 +12,105 @@ export interface CellProps {
   className?: string;
   component: string;
   style?: React.CSSProperties;
+  /** @deprecated Please use `styles.label` instead */
   labelStyle?: React.CSSProperties;
+  /** @deprecated Please use `styles.content` instead */
   contentStyle?: React.CSSProperties;
+  classNames?: CellSemanticType['classNames'];
+  styles?: CellSemanticType['styles'];
   bordered?: boolean;
   label?: React.ReactNode;
   content?: React.ReactNode;
   colon?: boolean;
+  type?: 'label' | 'content' | 'item';
 }
 
-const Cell: React.FC<CellProps> = ({
-  itemPrefixCls,
-  component,
-  span,
-  className,
-  style,
-  labelStyle,
-  contentStyle,
-  bordered,
-  label,
-  content,
-  colon,
-}) => {
-  const Component = component as any;
+const Cell: React.FC<CellProps> = (props) => {
+  const {
+    itemPrefixCls,
+    component,
+    span,
+    className,
+    style,
+    labelStyle,
+    contentStyle,
+    bordered,
+    label,
+    content,
+    colon,
+    type,
+    styles,
+    classNames,
+  } = props;
+
+  const Component = component as keyof React.JSX.IntrinsicElements;
+
+  const { classNames: contextClassNames, styles: contextStyles } =
+    React.useContext(DescriptionsContext);
+
+  const [mergedClassNames, mergedStyles] = useMergeSemantic(
+    [contextClassNames, classNames],
+    [contextStyles, styles],
+    {
+      props,
+    },
+  );
+
+  const mergedLabelStyle: React.CSSProperties = { ...labelStyle, ...mergedStyles.label };
+  const mergedContentStyle: React.CSSProperties = { ...contentStyle, ...mergedStyles.content };
 
   if (bordered) {
+    // The cell element (<th>/<td>) carries the `ant-descriptions-item-label`
+    // or `ant-descriptions-item-content` class, so `labelStyle` /
+    // `contentStyle` (and the semantic `styles.label` / `styles.content`)
+    // must be applied to that cell rather than to the inner <span> wrapper.
+    //
+    // Both bordered paths in `Row.tsx` (horizontal and vertical) forward
+    // the per-type merged style via `styles` and pass the raw item `style`
+    // separately, so `Cell` can unconditionally merge `typeStyle` onto the
+    // cell here without needing to know which branch produced it.
+    let typeStyle: React.CSSProperties | undefined;
+    if (type === 'label') {
+      typeStyle = mergedLabelStyle;
+    }
+    if (type === 'content') {
+      typeStyle = mergedContentStyle;
+    }
+    const mergedCellStyle = typeStyle ? { ...style, ...typeStyle } : style;
     return (
       <Component
-        className={classNames(
-          {
-            [`${itemPrefixCls}-item-label`]: notEmpty(label),
-            [`${itemPrefixCls}-item-content`]: notEmpty(content),
-          },
-          className,
-        )}
-        style={style}
         colSpan={span}
+        style={mergedCellStyle}
+        className={clsx(className, {
+          [`${itemPrefixCls}-item-${type}`]: type === 'label' || type === 'content',
+          [mergedClassNames.label]: mergedClassNames.label && type === 'label',
+          [mergedClassNames.content]: mergedClassNames.content && type === 'content',
+        })}
       >
-        {notEmpty(label) && <span style={labelStyle}>{label}</span>}
-        {notEmpty(content) && <span style={contentStyle}>{content}</span>}
+        {isReactRenderable(label) && <span>{label}</span>}
+        {isReactRenderable(content) && <span>{content}</span>}
       </Component>
     );
   }
 
   return (
-    <Component
-      className={classNames(`${itemPrefixCls}-item`, className)}
-      style={style}
-      colSpan={span}
-    >
+    <Component className={clsx(`${itemPrefixCls}-item`, className)} style={style} colSpan={span}>
       <div className={`${itemPrefixCls}-item-container`}>
-        {label && (
+        {isReactRenderable(label) && (
           <span
-            className={classNames(`${itemPrefixCls}-item-label`, {
+            style={mergedLabelStyle}
+            className={clsx(`${itemPrefixCls}-item-label`, mergedClassNames.label, {
               [`${itemPrefixCls}-item-no-colon`]: !colon,
             })}
-            style={labelStyle}
           >
             {label}
           </span>
         )}
-        {content && (
-          <span className={classNames(`${itemPrefixCls}-item-content`)} style={contentStyle}>
+        {isReactRenderable(content) && (
+          <span
+            style={mergedContentStyle}
+            className={clsx(`${itemPrefixCls}-item-content`, mergedClassNames.content)}
+          >
             {content}
           </span>
         )}

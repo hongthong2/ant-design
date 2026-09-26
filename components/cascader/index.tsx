@@ -1,33 +1,98 @@
 import * as React from 'react';
-import classNames from 'classnames';
-import RcCascader from 'rc-cascader';
-import type { CascaderProps as RcCascaderProps } from 'rc-cascader';
-import type { ShowSearchType, FieldNames } from 'rc-cascader/lib/interface';
-import omit from 'rc-util/lib/omit';
-import RightOutlined from '@ant-design/icons/RightOutlined';
-import RedoOutlined from '@ant-design/icons/RedoOutlined';
-import LeftOutlined from '@ant-design/icons/LeftOutlined';
-import devWarning from '../_util/devWarning';
-import { ConfigContext } from '../config-provider';
-import type { SizeType } from '../config-provider/SizeContext';
-import SizeContext from '../config-provider/SizeContext';
-import getIcons from '../select/utils/iconUtil';
-import { getTransitionName } from '../_util/motion';
+import type {
+  BaseOptionType,
+  DefaultOptionType,
+  FieldNames,
+  CascaderProps as RcCascaderProps,
+  SearchConfig,
+} from '@rc-component/cascader';
+import RcCascader from '@rc-component/cascader';
+import { omit } from '@rc-component/util';
+import { clsx } from 'clsx';
 
-// Align the design since we use `rc-select` in root. This help:
+import { useZIndex } from '../_util/hooks';
+import { useMergeSemantic, useSemanticRootStyle } from '../_util/hooks/useMergeSemantic';
+import type { GenerateSemantic } from '../_util/hooks/useMergeSemantic/semanticType';
+import { isNumber, isPlainObject, isString } from '../_util/is';
+import type { SelectCommonPlacement } from '../_util/motion';
+import { getTransitionName } from '../_util/motion';
+import genPurePanel from '../_util/PurePanel';
+import type { InputStatus } from '../_util/statusUtils';
+import { getMergedStatus, getStatusClassNames } from '../_util/statusUtils';
+import { devUseWarning } from '../_util/warning';
+import { ConfigContext } from '../config-provider';
+import type { Variant } from '../config-provider';
+import { useComponentConfig } from '../config-provider/context';
+import DefaultRenderEmpty from '../config-provider/defaultRenderEmpty';
+import DisabledContext from '../config-provider/DisabledContext';
+import useCSSVarCls from '../config-provider/hooks/useCSSVarCls';
+import useSize from '../config-provider/hooks/useSize';
+import type { SizeType } from '../config-provider/SizeContext';
+import { FormItemInputContext } from '../form/context';
+import useVariant from '../form/hooks/useVariants';
+import type { SelectSemanticType } from '../select';
+import mergedBuiltinPlacements from '../select/mergedBuiltinPlacements';
+import useSelectStyle from '../select/style';
+import useSelectIcons from '../select/useIcons';
+import usePopupRender from '../select/usePopupRender';
+import useShowArrow from '../select/useShowArrow';
+import { useCompactItemContext } from '../space/Compact';
+import useBase from './hooks/useBase';
+import useCheckable from './hooks/useCheckable';
+import useIcons from './hooks/useIcons';
+import CascaderPanel from './Panel';
+import useStyle from './style';
+
+// Align the design since we use `@rc-component/select` in root. This help:
 // - List search content will show all content
 // - Hover opacity style
 // - Search filter match case
+
+export type { BaseOptionType, DefaultOptionType };
 
 export type FieldNamesType = FieldNames;
 
 export type FilledFieldNamesType = Required<FieldNamesType>;
 
-function highlightKeyword(str: string, lowerKeyword: string, prefixCls: string | undefined) {
+export type CascaderSemanticType = {
+  classNames?: {
+    root?: string;
+    prefix?: string;
+    suffix?: string;
+    input?: string;
+    placeholder?: string;
+    content?: string;
+    item?: string;
+    itemContent?: string;
+    itemRemove?: string;
+    popup?: NonNullable<SelectSemanticType['classNames']>['popup'];
+  };
+  styles?: {
+    root?: React.CSSProperties;
+    prefix?: React.CSSProperties;
+    suffix?: React.CSSProperties;
+    input?: React.CSSProperties;
+    placeholder?: React.CSSProperties;
+    content?: React.CSSProperties;
+    item?: React.CSSProperties;
+    itemContent?: React.CSSProperties;
+    itemRemove?: React.CSSProperties;
+    popup?: NonNullable<SelectSemanticType['styles']>['popup'];
+  };
+};
+
+export type CascaderSemanticAllType = GenerateSemantic<CascaderSemanticType, CascaderProps>;
+
+const { SHOW_CHILD, SHOW_PARENT } = RcCascader;
+
+const highlightKeyword = (str: string, lowerKeyword: string, prefixCls?: string) => {
   const cells = str
     .toLowerCase()
     .split(lowerKeyword)
-    .reduce((list, cur, index) => (index === 0 ? [cur] : [...list, lowerKeyword, cur]), []);
+    .reduce<string[]>(
+      (list, cur, index) => (index === 0 ? [cur] : [...list, lowerKeyword, cur]),
+      [],
+    );
   const fillCells: React.ReactNode[] = [];
   let start = 0;
 
@@ -38,7 +103,8 @@ function highlightKeyword(str: string, lowerKeyword: string, prefixCls: string |
 
     if (index % 2 === 1) {
       originWorld = (
-        <span className={`${prefixCls}-menu-item-keyword`} key="seperator">
+        // eslint-disable-next-line react/no-array-index-key
+        <span className={`${prefixCls}-menu-item-keyword`} key={`separator-${index}`}>
           {originWorld}
         </span>
       );
@@ -48,9 +114,9 @@ function highlightKeyword(str: string, lowerKeyword: string, prefixCls: string |
   });
 
   return fillCells;
-}
+};
 
-const defaultSearchRender: ShowSearchType['render'] = (inputValue, path, prefixCls, fieldNames) => {
+const defaultSearchRender: SearchConfig['render'] = (inputValue, path, prefixCls, fieldNames) => {
   const optionList: React.ReactNode[] = [];
 
   // We do lower here to save perf
@@ -61,9 +127,8 @@ const defaultSearchRender: ShowSearchType['render'] = (inputValue, path, prefixC
       optionList.push(' / ');
     }
 
-    let label = (node as any)[fieldNames.label!];
-    const type = typeof label;
-    if (type === 'string' || type === 'number') {
+    let label = node[fieldNames.label!];
+    if (isString(label) || isNumber(label)) {
       label = highlightKeyword(String(label), lower, prefixCls);
     }
 
@@ -72,76 +137,196 @@ const defaultSearchRender: ShowSearchType['render'] = (inputValue, path, prefixC
   return optionList;
 };
 
-export interface CascaderProps extends Omit<RcCascaderProps, 'checkable'> {
-  multiple?: boolean;
+export interface CascaderProps<
+  OptionType extends DefaultOptionType = DefaultOptionType,
+  ValueField extends keyof OptionType = keyof OptionType,
+  Multiple extends boolean = boolean,
+> extends Omit<
+    RcCascaderProps<OptionType, ValueField, Multiple>,
+    'checkable' | 'classNames' | 'styles' | 'popupRender'
+  > {
+  multiple?: Multiple;
   size?: SizeType;
+  /**
+   * @deprecated `showArrow` is deprecated which will be removed in next major version. It will be a
+   *   default behavior, you can hide it by setting `suffixIcon` to null.
+   */
+  showArrow?: boolean;
+  disabled?: boolean;
+  /** @deprecated Use `variant` instead. */
   bordered?: boolean;
+  placement?: SelectCommonPlacement;
+  suffixIcon?: React.ReactNode;
+  showSearch?:
+    | boolean
+    | (SearchConfig<OptionType, keyof OptionType> & { searchIcon?: React.ReactNode });
+  options?: OptionType[];
+  status?: InputStatus;
+
+  rootClassName?: string;
+  /** @deprecated Please use `classNames.popup.root` instead */
+  popupClassName?: string;
+  /** @deprecated Please use `classNames.popup.root` instead */
+  dropdownClassName?: string;
+  /** @deprecated Please use `styles.popup.root` instead */
+  dropdownStyle?: React.CSSProperties;
+  /** @deprecated Please use `popupRender` instead */
+  dropdownRender?: (menu: React.ReactElement) => React.ReactNode;
+  popupRender?: (menu: React.ReactElement) => React.ReactNode;
+  /** @deprecated Please use `styles.popup.listItem` instead */
+  dropdownMenuColumnStyle?: React.CSSProperties;
+  /** @deprecated Please use `styles.popup.listItem` instead */
+  popupMenuColumnStyle?: React.CSSProperties;
+  /** @deprecated Please use `onOpenChange` instead */
+  onDropdownVisibleChange?: (visible: boolean) => void;
+  /** @deprecated Please use `onOpenChange` instead */
+  onPopupVisibleChange?: (visible: boolean) => void;
+  onOpenChange?: (open: boolean) => void;
+  /**
+   * @since 5.13.0
+   * @default "outlined"
+   */
+  variant?: Variant;
+  classNames?: CascaderSemanticAllType['classNamesAndFn'];
+  styles?: CascaderSemanticAllType['stylesAndFn'];
 }
 
-interface CascaderRef {
+export type CascaderAutoProps<
+  OptionType extends DefaultOptionType = DefaultOptionType,
+  ValueField extends keyof OptionType = keyof OptionType,
+> =
+  | (CascaderProps<OptionType, ValueField> & { multiple?: false })
+  | (CascaderProps<OptionType, ValueField, true> & { multiple: true });
+
+export interface CascaderRef {
   focus: () => void;
   blur: () => void;
 }
 
-const Cascader = React.forwardRef((props: CascaderProps, ref: React.Ref<CascaderRef>) => {
+const Cascader = React.forwardRef<CascaderRef, CascaderProps<any>>((props, ref) => {
   const {
     prefixCls: customizePrefixCls,
     size: customizeSize,
+    disabled: customDisabled,
     className,
+    rootClassName,
     multiple,
     bordered = true,
     transitionName,
     choiceTransitionName = '',
     popupClassName,
-    dropdownClassName,
     expandIcon,
+    placement,
     showSearch,
     allowClear = true,
     notFoundContent,
     direction,
     getPopupContainer,
-    ...rest
+    status: customStatus,
+    showArrow,
+    builtinPlacements,
+    style,
+    variant: customVariant,
+    dropdownClassName,
+    dropdownRender,
+    onDropdownVisibleChange,
+    onPopupVisibleChange,
+    dropdownMenuColumnStyle,
+    popupRender,
+    dropdownStyle,
+    popupMenuColumnStyle,
+    onOpenChange,
+    styles,
+    classNames,
+    loadingIcon,
+    clearIcon,
+    removeIcon,
+    suffixIcon,
+    ...restProps
   } = props;
 
-  const restProps = omit(rest, ['suffixIcon' as any]);
-
   const {
-    getPopupContainer: getContextPopupContainer,
     getPrefixCls,
-    renderEmpty,
-    direction: rootDirection,
-    // virtual,
-    // dropdownMatchSelectWidth,
-  } = React.useContext(ConfigContext);
+    getPopupContainer: getContextPopupContainer,
+    className: contextClassName,
+    style: contextStyle,
+    classNames: contextClassNames,
+    styles: contextStyles,
+    expandIcon: contextExpandIcon,
+    loadingIcon: contextLoadingIcon,
+    clearIcon: contextClearIcon,
+    removeIcon: contextRemoveIcon,
+    suffixIcon: contextSuffixIcon,
+    searchIcon: contextSearchIcon,
+  } = useComponentConfig('cascader');
 
-  const mergedDirection = direction || rootDirection;
-  const isRtl = mergedDirection === 'rtl';
+  const { popupOverflow } = React.useContext(ConfigContext);
+
+  // =================== Form =====================
+  const {
+    status: contextStatus,
+    hasFeedback,
+    isFormItemInput,
+    feedbackIcon,
+  } = React.useContext(FormItemInputContext);
+  const mergedStatus = getMergedStatus(contextStatus, customStatus);
 
   // =================== Warning =====================
   if (process.env.NODE_ENV !== 'production') {
-    devWarning(
-      popupClassName === undefined,
-      'Cascader',
-      '`popupClassName` is deprecated. Please use `dropdownClassName` instead.',
+    const warning = devUseWarning('Cascader');
+
+    // v5 deprecated dropdown api
+    const deprecatedProps = {
+      dropdownClassName: 'classNames.popup.root',
+      dropdownStyle: 'styles.popup.root',
+      dropdownRender: 'popupRender',
+      dropdownMenuColumnStyle: 'styles.popup.listItem',
+      popupMenuColumnStyle: 'styles.popup.listItem',
+      onDropdownVisibleChange: 'onOpenChange',
+      onPopupVisibleChange: 'onOpenChange',
+      bordered: 'variant',
+    };
+
+    Object.entries(deprecatedProps).forEach(([oldProp, newProp]) => {
+      warning.deprecated(!(oldProp in props), oldProp, newProp);
+    });
+
+    warning(
+      !('showArrow' in props),
+      'deprecated',
+      '`showArrow` is deprecated which will be removed in next major version. It will be a default behavior, you can hide it by setting `suffixIcon` to null.',
     );
   }
 
-  // =================== No Found ====================
-  const mergedNotFoundContent = notFoundContent || renderEmpty('Cascader');
-
   // ==================== Prefix =====================
-  const rootPrefixCls = getPrefixCls();
-  const prefixCls = getPrefixCls('select', customizePrefixCls);
-  const cascaderPrefixCls = getPrefixCls('cascader', customizePrefixCls);
-
-  // =================== Dropdown ====================
-  const mergedDropdownClassName = classNames(
-    dropdownClassName || popupClassName,
-    `${cascaderPrefixCls}-dropdown`,
-    {
-      [`${cascaderPrefixCls}-dropdown-rtl`]: mergedDirection === 'rtl',
-    },
+  const [prefixCls, cascaderPrefixCls, mergedDirection, renderEmpty] = useBase(
+    customizePrefixCls,
+    direction,
   );
+  const isRtl = mergedDirection === 'rtl';
+
+  const rootPrefixCls = getPrefixCls();
+
+  const rootCls = useCSSVarCls(prefixCls);
+  const [hashId, cssVarCls] = useSelectStyle(prefixCls, rootCls);
+  const cascaderRootCls = useCSSVarCls(cascaderPrefixCls);
+  useStyle(cascaderPrefixCls, cascaderRootCls);
+
+  const { compactSize, compactItemClassnames } = useCompactItemContext(prefixCls, direction);
+
+  const [variant, enableVariantCls] = useVariant('cascader', customVariant, bordered);
+
+  // =================== No Found ====================
+  const mergedNotFoundContent =
+    notFoundContent !== undefined
+      ? notFoundContent
+      : renderEmpty?.('Cascader') || <DefaultRenderEmpty componentName="Cascader" />;
+
+  const mergedPopupRender = usePopupRender(popupRender || dropdownRender);
+
+  const mergedPopupMenuColumnStyle = popupMenuColumnStyle || dropdownMenuColumnStyle;
+
+  const mergedOnOpenChange = onOpenChange || onPopupVisibleChange || onDropdownVisibleChange;
 
   // ==================== Search =====================
   const mergedShowSearch = React.useMemo(() => {
@@ -149,84 +334,194 @@ const Cascader = React.forwardRef((props: CascaderProps, ref: React.Ref<Cascader
       return showSearch;
     }
 
-    let searchConfig: ShowSearchType = {
+    let searchConfig: SearchConfig = {
       render: defaultSearchRender,
     };
 
-    if (typeof showSearch === 'object') {
-      searchConfig = {
-        ...searchConfig,
-        ...showSearch,
-      };
+    if (isPlainObject(showSearch)) {
+      searchConfig = { ...searchConfig, ...showSearch };
     }
 
     return searchConfig;
   }, [showSearch]);
 
   // ===================== Size ======================
-  const size = React.useContext(SizeContext);
-  const mergedSize = customizeSize || size;
+  const mergedSize = useSize((ctx) => customizeSize ?? compactSize ?? ctx);
+
+  // ===================== Disabled =====================
+  const disabled = React.useContext(DisabledContext);
+  const mergedDisabled = customDisabled ?? disabled;
 
   // ===================== Icon ======================
-  let mergedExpandIcon = expandIcon;
-  if (!expandIcon) {
-    mergedExpandIcon = isRtl ? <LeftOutlined /> : <RightOutlined />;
-  }
-
-  const loadingIcon = (
-    <span className={`${prefixCls}-menu-item-loading-icon`}>
-      <RedoOutlined spin />
-    </span>
-  );
+  const { expandIcon: mergedExpandIcon, loadingIcon: mergedLoadingIcon } = useIcons({
+    contextExpandIcon,
+    contextLoadingIcon,
+    expandIcon,
+    loadingIcon,
+    isRtl,
+  });
 
   // =================== Multiple ====================
-  const checkable = React.useMemo(
-    () => (multiple ? <span className={`${cascaderPrefixCls}-checkbox-inner`} /> : false),
-    [multiple],
-  );
+  const checkable = useCheckable(cascaderPrefixCls, multiple);
 
   // ===================== Icons =====================
-  const { suffixIcon, removeIcon, clearIcon } = getIcons({
+  const showSuffixIcon = useShowArrow(props.suffixIcon, showArrow);
+  const {
+    suffixIcon: mergedSuffixIcon,
+    removeIcon: mergedRemoveIcon,
+    clearIcon: mergedClearIcon,
+  } = useSelectIcons({
     ...props,
+    clearIcon,
+    contextClearIcon,
+    removeIcon,
+    contextRemoveIcon,
+    loadingIcon: mergedLoadingIcon,
+    suffixIcon,
+    contextSuffixIcon,
+    searchIcon: isPlainObject(showSearch) ? showSearch.searchIcon : undefined,
+    contextSearchIcon,
+    hasFeedback,
+    feedbackIcon,
+    showSuffixIcon,
     multiple,
     prefixCls,
+    componentName: 'Cascader',
   });
+
+  // ===================== Placement =====================
+  const memoPlacement = React.useMemo<SelectCommonPlacement>(() => {
+    if (placement !== undefined) {
+      return placement;
+    }
+    return isRtl ? 'bottomRight' : 'bottomLeft';
+  }, [placement, isRtl]);
+
+  const mergedAllowClear = allowClear === true ? { clearIcon: mergedClearIcon } : allowClear;
+
+  // =========== Merged Props for Semantic ==========
+  const mergedProps: CascaderProps<any> = {
+    ...props,
+    variant,
+    size: mergedSize,
+    status: mergedStatus,
+    disabled: mergedDisabled,
+  };
+
+  const contextStyleRoot = useSemanticRootStyle(contextStyle);
+  const styleRoot = useSemanticRootStyle(style);
+
+  const [mergedClassNames, mergedStyles] = useMergeSemantic<
+    CascaderSemanticAllType['classNames'],
+    CascaderSemanticAllType['styles'],
+    CascaderProps
+  >(
+    [contextClassNames, classNames],
+    [contextStyles, contextStyleRoot, styles, styleRoot],
+    { props: mergedProps as CascaderProps },
+    {
+      popup: {
+        _default: 'root',
+      },
+    },
+  );
+
+  // =================== Dropdown ====================
+  const mergedPopupStyle = { ...mergedStyles.popup.root, ...dropdownStyle };
+
+  // ============================ zIndex ============================
+  const [zIndex] = useZIndex('SelectLike', mergedPopupStyle?.zIndex as number);
+
+  const mergedPopupClassName = clsx(
+    popupClassName || dropdownClassName,
+    `${cascaderPrefixCls}-dropdown`,
+    {
+      [`${cascaderPrefixCls}-dropdown-rtl`]: mergedDirection === 'rtl',
+    },
+    rootClassName,
+    rootCls,
+    mergedClassNames.popup.root,
+    cascaderRootCls,
+    hashId,
+    cssVarCls,
+  );
 
   // ==================== Render =====================
   return (
     <RcCascader
       prefixCls={prefixCls}
-      className={classNames(
+      className={clsx(
         !customizePrefixCls && cascaderPrefixCls,
         {
           [`${prefixCls}-lg`]: mergedSize === 'large',
           [`${prefixCls}-sm`]: mergedSize === 'small',
           [`${prefixCls}-rtl`]: isRtl,
-          [`${prefixCls}-borderless`]: !bordered,
+          [`${prefixCls}-${variant}`]: enableVariantCls,
+          [`${prefixCls}-in-form-item`]: isFormItemInput,
         },
+        getStatusClassNames(prefixCls, mergedStatus, hasFeedback),
+        compactItemClassnames,
+        contextClassName,
         className,
+        rootClassName,
+        mergedClassNames.root,
+        rootCls,
+        cascaderRootCls,
+        hashId,
+        cssVarCls,
       )}
+      disabled={mergedDisabled}
+      style={mergedStyles.root}
+      classNames={mergedClassNames}
+      styles={mergedStyles}
       {...(restProps as any)}
+      builtinPlacements={mergedBuiltinPlacements(builtinPlacements, popupOverflow)}
       direction={mergedDirection}
+      placement={memoPlacement}
       notFoundContent={mergedNotFoundContent}
-      allowClear={allowClear}
+      allowClear={mergedAllowClear}
       showSearch={mergedShowSearch}
       expandIcon={mergedExpandIcon}
-      inputIcon={suffixIcon}
-      removeIcon={removeIcon}
-      clearIcon={clearIcon}
-      loadingIcon={loadingIcon}
+      suffixIcon={mergedSuffixIcon}
+      removeIcon={mergedRemoveIcon}
+      loadingIcon={mergedLoadingIcon}
       checkable={checkable}
-      dropdownClassName={mergedDropdownClassName}
-      dropdownPrefixCls={customizePrefixCls || cascaderPrefixCls}
+      popupClassName={mergedPopupClassName}
+      popupPrefixCls={customizePrefixCls || cascaderPrefixCls}
+      popupStyle={{ ...mergedPopupStyle, zIndex }}
+      popupRender={mergedPopupRender}
+      popupMenuColumnStyle={mergedPopupMenuColumnStyle}
+      onPopupVisibleChange={mergedOnOpenChange}
       choiceTransitionName={getTransitionName(rootPrefixCls, '', choiceTransitionName)}
       transitionName={getTransitionName(rootPrefixCls, 'slide-up', transitionName)}
       getPopupContainer={getPopupContainer || getContextPopupContainer}
       ref={ref}
     />
   );
-});
+}) as unknown as (<
+  OptionType extends DefaultOptionType = DefaultOptionType,
+  ValueField extends keyof OptionType = keyof OptionType,
+>(
+  props: React.PropsWithChildren<CascaderAutoProps<OptionType, ValueField>> &
+    React.RefAttributes<CascaderRef>,
+) => React.ReactElement) & {
+  displayName: string;
+  SHOW_PARENT: typeof SHOW_PARENT;
+  SHOW_CHILD: typeof SHOW_CHILD;
+  Panel: typeof CascaderPanel;
+  _InternalPanelDoNotUseOrYouWillBeFired: typeof PurePanel;
+};
+if (process.env.NODE_ENV !== 'production') {
+  Cascader.displayName = 'Cascader';
+}
 
-Cascader.displayName = 'Cascader';
+// We don't care debug panel
+/* istanbul ignore next */
+const PurePanel = genPurePanel(Cascader, 'popupAlign', (props: any) => omit(props, ['visible']));
+
+Cascader.SHOW_PARENT = SHOW_PARENT;
+Cascader.SHOW_CHILD = SHOW_CHILD;
+Cascader.Panel = CascaderPanel;
+Cascader._InternalPanelDoNotUseOrYouWillBeFired = PurePanel;
 
 export default Cascader;

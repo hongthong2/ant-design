@@ -1,0 +1,164 @@
+import * as React from 'react';
+import { toArray } from '@rc-component/util';
+import { clsx } from 'clsx';
+
+import { useOrientation } from '../_util/hooks';
+import type { Orientation } from '../_util/hooks';
+import { devUseWarning } from '../_util/warning';
+import type { DirectionType } from '../config-provider';
+import { ConfigContext } from '../config-provider';
+import useSize from '../config-provider/hooks/useSize';
+import type { SizeType } from '../config-provider/SizeContext';
+import useStyle from './style/compact';
+
+export interface SpaceCompactItemContextType {
+  compactSize?: SizeType;
+  compactDirection?: 'horizontal' | 'vertical';
+  isFirstItem?: boolean;
+  isLastItem?: boolean;
+}
+
+export const SpaceCompactItemContext = React.createContext<SpaceCompactItemContextType | null>(
+  null,
+);
+
+export const useCompactItemContext = (prefixCls: string, direction: DirectionType) => {
+  const compactItemContext = React.useContext(SpaceCompactItemContext);
+
+  const compactItemClassnames = React.useMemo<string>(() => {
+    if (!compactItemContext) {
+      return '';
+    }
+    const { compactDirection, isFirstItem, isLastItem } = compactItemContext;
+    const separator = compactDirection === 'vertical' ? '-vertical-' : '-';
+
+    return clsx(`${prefixCls}-compact${separator}item`, {
+      [`${prefixCls}-compact${separator}first-item`]: isFirstItem,
+      [`${prefixCls}-compact${separator}last-item`]: isLastItem,
+      [`${prefixCls}-compact${separator}item-rtl`]: direction === 'rtl',
+    });
+  }, [prefixCls, direction, compactItemContext]);
+
+  return {
+    compactSize: compactItemContext?.compactSize,
+    compactDirection: compactItemContext?.compactDirection,
+    compactItemClassnames,
+  };
+};
+
+export const NoCompactStyle: React.FC<Readonly<React.PropsWithChildren>> = (props) => {
+  const { children } = props;
+  return (
+    <SpaceCompactItemContext.Provider value={null}>{children}</SpaceCompactItemContext.Provider>
+  );
+};
+
+export interface SpaceCompactProps extends React.HTMLAttributes<HTMLDivElement> {
+  prefixCls?: string;
+  size?: SizeType;
+  /** @deprecated please use `orientation` instead */
+  direction?: Orientation;
+  orientation?: Orientation;
+  vertical?: boolean;
+  block?: boolean;
+  rootClassName?: string;
+}
+
+export interface SpaceCompactRef {
+  nativeElement: HTMLDivElement;
+}
+
+const CompactItem: React.FC<React.PropsWithChildren<SpaceCompactItemContextType>> = (props) => {
+  const { children, ...others } = props;
+  return (
+    <SpaceCompactItemContext.Provider
+      value={React.useMemo<SpaceCompactItemContextType>(() => others, [others])}
+    >
+      {children}
+    </SpaceCompactItemContext.Provider>
+  );
+};
+
+const Compact = React.forwardRef<SpaceCompactRef, SpaceCompactProps>((props, ref) => {
+  const { getPrefixCls, direction: directionConfig } = React.useContext(ConfigContext);
+
+  const {
+    size,
+    direction,
+    orientation,
+    block,
+    prefixCls: customizePrefixCls,
+    className,
+    rootClassName,
+    children,
+    vertical,
+    ...restProps
+  } = props;
+
+  // ======================== Warning ==========================
+  if (process.env.NODE_ENV !== 'production') {
+    const warning = devUseWarning('Space.Compact');
+    warning.deprecated(!direction, 'direction', 'orientation');
+  }
+
+  const [mergedOrientation, mergedVertical] = useOrientation(orientation, vertical, direction);
+  const mergedSize = useSize((ctx) => size ?? ctx);
+
+  const prefixCls = getPrefixCls('space-compact', customizePrefixCls);
+  const [hashId] = useStyle(prefixCls);
+  const clx = clsx(
+    prefixCls,
+    hashId,
+    {
+      [`${prefixCls}-rtl`]: directionConfig === 'rtl',
+      [`${prefixCls}-block`]: block,
+      [`${prefixCls}-vertical`]: mergedVertical,
+    },
+    className,
+    rootClassName,
+  );
+
+  const compactItemContext = React.useContext(SpaceCompactItemContext);
+
+  const nativeElementRef = React.useRef<HTMLDivElement>(null);
+
+  React.useImperativeHandle(ref, () => ({
+    nativeElement: nativeElementRef.current!,
+  }));
+
+  const childNodes = toArray(children);
+
+  const nodes = React.useMemo(
+    () =>
+      childNodes.map((child, i) => {
+        const key = child?.key || `${prefixCls}-item-${i}`;
+        return (
+          <CompactItem
+            key={key}
+            compactSize={mergedSize}
+            compactDirection={mergedOrientation}
+            isFirstItem={i === 0 && (!compactItemContext || compactItemContext?.isFirstItem)}
+            isLastItem={
+              i === childNodes.length - 1 && (!compactItemContext || compactItemContext?.isLastItem)
+            }
+          >
+            {child}
+          </CompactItem>
+        );
+      }),
+    [childNodes, compactItemContext, mergedOrientation, mergedSize, prefixCls],
+  );
+
+  // =========================== Render ===========================
+  if (childNodes.length === 0) {
+    return null;
+  }
+
+  return (
+    <div ref={nativeElementRef} className={clx} {...restProps}>
+      {nodes}
+    </div>
+  );
+});
+
+export default Compact;

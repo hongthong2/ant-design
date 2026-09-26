@@ -1,76 +1,7 @@
----
-order: 99
-title:
-  zh-CN: 省略号 Debug
-  en-US: Ellipsis Debug
-debug: true
----
-
 ## zh-CN
 
-多行文本省略。
+多行文本省略。页面底部包含「可复制 + 省略」时 tooltip 行为的调试区块，便于验证：悬停文字显示省略 tooltip，悬停复制按钮仅显示复制 tooltip，从复制按钮移回文字时省略 tooltip 再次出现。
 
 ## en-US
 
-Multiple line ellipsis support.
-
-```jsx
-import { Typography, Slider, Switch } from 'antd';
-
-const { Text, Paragraph } = Typography;
-
-class Demo extends React.Component {
-  state = {
-    rows: 1,
-    longText: true,
-    copyable: false,
-    editable: false,
-    expandable: false,
-  };
-
-  onChange = rows => {
-    this.setState({ rows });
-  };
-
-  render() {
-    const { rows, longText, copyable, editable, expandable } = this.state;
-    return (
-      <>
-        <Switch
-          checked={longText}
-          checkedChildren="Long Text"
-          onChange={val => this.setState({ longText: val })}
-        />
-        <Switch onChange={val => this.setState({ copyable: val })} />
-        <Switch onChange={val => this.setState({ editable: val })} />
-        <Switch onChange={val => this.setState({ expandable: val })} />
-        <Slider value={rows} min={1} max={10} onChange={this.onChange} />
-        {longText ? (
-          <Paragraph ellipsis={{ rows, expandable }} copyable={copyable} editable={editable}>
-            Ant Design, a design language for background applications, is refined by Ant UED Team.
-            This is a nest sample{' '}
-            <Text code strong delete>
-              Test
-            </Text>{' '}
-            case. Bnt Design, a design language for background applications, is refined by Ant UED
-            Team. Cnt Design, a design language for background applications, is refined by Ant UED
-            Team. Dnt Design, a design language for background applications, is refined by Ant UED
-            Team. Ent Design, a design language for background applications, is refined by Ant UED
-            Team.
-          </Paragraph>
-        ) : (
-          <Paragraph ellipsis={{ rows, expandable }} copyable={copyable} editable={editable}>
-            Hello World
-          </Paragraph>
-        )}
-
-        <p>
-          2333<Text ellipsis>2333</Text>2333
-        </p>
-      </>
-    );
-  }
-}
-
-ReactDOM.render(<Demo />, mountNode);
-```
+Multiple line ellipsis support. The bottom section is a debug block for copyable + ellipsis tooltip behavior: hover text for ellipsis tooltip, hover copy button for copy-only tooltip, then move back to text to confirm the ellipsis tooltip shows again.

@@ -1,17 +1,19 @@
 import * as React from 'react';
-import { DescriptionsItemProps } from './Item';
+
+import type { InternalDescriptionsItemType } from '.';
 import Cell from './Cell';
-import { DescriptionsContext, DescriptionsContextProps } from '.';
+import type { DescriptionsContextProps } from './DescriptionsContext';
+import DescriptionsContext from './DescriptionsContext';
 
 interface CellConfig {
   component: string | [string, string];
-  type: string;
+  type: 'label' | 'content' | 'item';
   showLabel?: boolean;
   showContent?: boolean;
 }
 
 function renderCells(
-  items: React.ReactElement<DescriptionsItemProps>[],
+  items: InternalDescriptionsItemType[],
   { colon, prefixCls, bordered }: RowProps,
   {
     component,
@@ -20,33 +22,49 @@ function renderCells(
     showContent,
     labelStyle: rootLabelStyle,
     contentStyle: rootContentStyle,
+    styles: rootStyles,
   }: CellConfig & DescriptionsContextProps,
 ) {
   return items.map(
     (
       {
-        props: {
-          label,
-          children,
-          prefixCls: itemPrefixCls = prefixCls,
-          className,
-          style,
-          labelStyle,
-          contentStyle,
-          span = 1,
-        },
+        label,
+        children,
+        prefixCls: itemPrefixCls = prefixCls,
+        className,
+        style,
+        labelStyle,
+        contentStyle,
+        span = 1,
         key,
+        styles,
+        classNames,
       },
       index,
     ) => {
+      const mergedKey = key ?? index;
+
       if (typeof component === 'string') {
         return (
           <Cell
-            key={`${type}-${key || index}`}
+            key={`${type}-${mergedKey}`}
             className={className}
             style={style}
-            labelStyle={{ ...rootLabelStyle, ...labelStyle }}
-            contentStyle={{ ...rootContentStyle, ...contentStyle }}
+            classNames={classNames}
+            styles={{
+              label: {
+                ...rootLabelStyle,
+                ...rootStyles?.label,
+                ...labelStyle,
+                ...styles?.label,
+              },
+              content: {
+                ...rootContentStyle,
+                ...rootStyles?.content,
+                ...contentStyle,
+                ...styles?.content,
+              },
+            }}
             span={span}
             colon={colon}
             component={component}
@@ -54,31 +72,52 @@ function renderCells(
             bordered={bordered}
             label={showLabel ? label : null}
             content={showContent ? children : null}
+            type={type}
           />
         );
       }
 
+      const mergedStyles = {
+        label: {
+          ...rootLabelStyle,
+          ...rootStyles?.label,
+          ...labelStyle,
+          ...styles?.label,
+        },
+        content: {
+          ...rootContentStyle,
+          ...rootStyles?.content,
+          ...contentStyle,
+          ...styles?.content,
+        },
+      };
       return [
         <Cell
-          key={`label-${key || index}`}
+          key={`label-${mergedKey}`}
           className={className}
-          style={{ ...rootLabelStyle, ...style, ...labelStyle }}
+          style={style}
+          classNames={classNames}
+          styles={mergedStyles}
           span={1}
           colon={colon}
           component={component[0]}
           itemPrefixCls={itemPrefixCls}
           bordered={bordered}
           label={label}
+          type="label"
         />,
         <Cell
-          key={`content-${key || index}`}
+          key={`content-${mergedKey}`}
           className={className}
-          style={{ ...rootContentStyle, ...style, ...contentStyle }}
+          style={style}
+          classNames={classNames}
+          styles={mergedStyles}
           span={span * 2 - 1}
           component={component[1]}
           itemPrefixCls={itemPrefixCls}
           bordered={bordered}
           content={children}
+          type="content"
         />,
       ];
     },
@@ -88,13 +127,14 @@ function renderCells(
 export interface RowProps {
   prefixCls: string;
   vertical: boolean;
-  row: React.ReactElement<DescriptionsItemProps>[];
+  row: InternalDescriptionsItemType[];
   bordered?: boolean;
   colon: boolean;
   index: number;
+  children?: React.ReactNode;
 }
 
-const Row: React.FC<RowProps> = props => {
+const Row: React.FC<RowProps> = (props) => {
   const descContext = React.useContext(DescriptionsContext);
 
   const { prefixCls, vertical, row, index, bordered } = props;

@@ -1,17 +1,34 @@
-import Input from './Input';
 import Group from './Group';
+import InternalInput from './Input';
+import OTP from './OTP';
+import Password from './Password';
 import Search from './Search';
 import TextArea from './TextArea';
-import Password from './Password';
 
-export { InputProps } from './Input';
-export { GroupProps } from './Group';
-export { SearchProps } from './Search';
-export { TextAreaProps } from './TextArea';
-export { PasswordProps } from './Password';
+export type {
+  /** @deprecated Please use `GetProps<typeof Input.Group>` instead. */
+  GroupProps,
+} from './Group';
+export type { InputProps, InputRef } from './Input';
+export type { PasswordProps } from './Password';
+export type { SearchProps } from './Search';
+export type { TextAreaProps } from './TextArea';
+
+type CompoundedComponent = typeof InternalInput & {
+  /** @deprecated Please use `Space.Compact` */
+  Group: typeof Group;
+  Search: typeof Search;
+  TextArea: typeof TextArea;
+  Password: typeof Password;
+  OTP: typeof OTP;
+};
+
+const Input = InternalInput as CompoundedComponent;
 
 Input.Group = Group;
 Input.Search = Search;
 Input.TextArea = TextArea;
 Input.Password = Password;
+Input.OTP = OTP;
+
 export default Input;

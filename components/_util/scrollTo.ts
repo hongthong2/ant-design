@@ -1,38 +1,61 @@
-import raf from 'rc-util/lib/raf';
-import getScroll, { isWindow } from './getScroll';
+import { raf } from '@rc-component/util';
+
 import { easeInOutCubic } from './easings';
+import getScroll from './getScroll';
+import { isDocument, isFunction, isWindow } from './is';
 
 interface ScrollToOptions {
   /** Scroll container, default as window */
   getContainer?: () => HTMLElement | Window | Document;
   /** Scroll end callback */
-  callback?: () => any;
+  callback?: () => void;
   /** Animation duration, default as 450 */
   duration?: number;
 }
 
-export default function scrollTo(y: number, options: ScrollToOptions = {}) {
+const scrollTo = (y: number, options: ScrollToOptions = {}) => {
   const { getContainer = () => window, callback, duration = 450 } = options;
   const container = getContainer();
-  const scrollTop = getScroll(container, true);
+  const scrollTop = getScroll(container);
+
+  const scroll = (top: number) => {
+    if (isWindow(container)) {
+      container.scrollTo(window.pageXOffset, top);
+    } else if (isDocument(container)) {
+      container.documentElement.scrollTop = top;
+    } else {
+      container.scrollTop = top;
+    }
+  };
+
+  if (duration <= 0) {
+    scroll(y);
+    if (isFunction(callback)) {
+      callback();
+    }
+    return () => {};
+  }
+
   const startTime = Date.now();
+
+  let rafId: number;
 
   const frameFunc = () => {
     const timestamp = Date.now();
     const time = timestamp - startTime;
     const nextScrollTop = easeInOutCubic(time > duration ? duration : time, scrollTop, y, duration);
-    if (isWindow(container)) {
-      (container as Window).scrollTo(window.pageXOffset, nextScrollTop);
-    } else if (container instanceof HTMLDocument || container.constructor.name === 'HTMLDocument') {
-      (container as HTMLDocument).documentElement.scrollTop = nextScrollTop;
-    } else {
-      (container as HTMLElement).scrollTop = nextScrollTop;
-    }
+    scroll(nextScrollTop);
     if (time < duration) {
-      raf(frameFunc);
-    } else if (typeof callback === 'function') {
+      rafId = raf(frameFunc);
+    } else if (isFunction(callback)) {
       callback();
     }
   };
-  raf(frameFunc);
-}
+  rafId = raf(frameFunc);
+
+  return () => {
+    raf.cancel(rafId);
+  };
+};
+
+export default scrollTo;
